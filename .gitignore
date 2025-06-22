@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.pkl
+*.h5
+*.log
+*.ipynb_checkpoints
+venv/
+battsentinel-backend/venv/
+
+# Node / React
+node_modules/
+dist/
+build/
+
+# Entornos
+.env
+
+# Otros
+.DS_Store
+
