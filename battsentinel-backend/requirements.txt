@@ -38,7 +38,7 @@ namex==0.1.0
 narwhals==1.43.1
 networkx==3.4.1
 numba==0.61.2
-numpy==1.24.4
+numpy==1.24.3
 opencv-python==4.11.0.86
 opt_einsum==3.4.0
 optree==0.16.0
@@ -64,7 +64,7 @@ slicer==0.0.8
 SQLAlchemy==2.0.41
 tensorboard==2.13.0
 tensorboard-data-server==0.7.2
-tensorflow==2.13.0
+tensorflow==2.14.0
 tensorflow-io-gcs-filesystem==0.33.0
 termcolor==3.1.0
 threadpoolctl==3.6.0
