@@ -12,6 +12,10 @@ from src.routes.digital_twin import twin_bp
 from src.routes.notifications import notifications_bp
 from src.routes.auth import auth_bp
 
+# Crear carpeta 'database' si no existe
+db_dir = os.path.join(os.path.dirname(__file__), 'database')
+os.makedirs(db_dir, exist_ok=True)
+
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.config['SECRET_KEY'] = 'BattSentinel#2024$SecureKey!AI'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
