@@ -6,8 +6,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, mean_absolute_error
 import joblib
 import shap
-import lime
-import lime.tabular
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
@@ -359,8 +357,7 @@ class XAIExplainer:
     
     def __init__(self):
         self.shap_explainer = None
-        self.lime_explainer = None
-    
+           
     def explain_fault_detection(self, df, prediction_result):
         """Explicar predicciones de detección de fallas"""
         try:
