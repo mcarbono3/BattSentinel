@@ -299,4 +299,3 @@ export default {
   notifications: notificationsAPI,
   utils
 }
-
