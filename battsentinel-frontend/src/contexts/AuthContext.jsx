@@ -8,37 +8,10 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [token, setToken] = useState(localStorage.getItem('battsentinel-token'))
 
-  useEffect(() => {
-    const initAuth = async () => {
-      // Modo demo - simular usuario autenticado
-      const demoUser = {
-        id: 1,
-        username: 'admin',
-        email: 'admin@battsentinel.com',
-        role: 'admin'
-      }
-      
-if (token) {
-  try {
-    const response = await authAPI.verifyToken(token)
-    if (response.success) {
-      setUser(response.data.user)
-    } else {
-      // Token inválido, limpiar y forzar login manual
-      localStorage.removeItem('battsentinel-token')
-      setToken(null)
-      setUser(null)
-    }
-  } catch (error) {
-    console.error('Token verification failed:', error)
-    localStorage.removeItem('battsentinel-token')
-    setToken(null)
-    setUser(null)
-  }
-} else {
-  setUser(null) // No hay token, usuario no autenticado
-}
-setLoading(false)
+useEffect(() => {
+  // Solo marcamos la app como lista, no intentamos verificar token automáticamente
+  setLoading(false)
+}, [])
 
   const login = async (credentials) => {
     try {
@@ -137,4 +110,3 @@ export function useAuth() {
   }
   return context
 }
-
