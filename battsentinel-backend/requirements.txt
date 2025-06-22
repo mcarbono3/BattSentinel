@@ -70,7 +70,7 @@ termcolor==3.1.0
 threadpoolctl==3.6.0
 tifffile==2024.6.18
 tqdm==4.67.1
-typing_extensions==4.14.0
+typing_extensions==4.5.0
 tzdata==2025.2
 urllib3==2.5.0
 Werkzeug==3.1.3
