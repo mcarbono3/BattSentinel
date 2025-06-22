@@ -18,35 +18,27 @@ export function AuthProvider({ children }) {
         role: 'admin'
       }
       
-      if (token) {
-        try {
-          const response = await authAPI.verifyToken(token)
-          if (response.success) {
-            setUser(response.data.user)
-          } else {
-            // En modo demo, usar usuario simulado
-            setUser(demoUser)
-            localStorage.setItem('battsentinel-token', 'demo-token')
-            setToken('demo-token')
-          }
-        } catch (error) {
-          console.error('Token verification failed, using demo mode:', error)
-          // En modo demo, usar usuario simulado
-          setUser(demoUser)
-          localStorage.setItem('battsentinel-token', 'demo-token')
-          setToken('demo-token')
-        }
-      } else {
-        // En modo demo, autenticar automáticamente
-        setUser(demoUser)
-        localStorage.setItem('battsentinel-token', 'demo-token')
-        setToken('demo-token')
-      }
-      setLoading(false)
+if (token) {
+  try {
+    const response = await authAPI.verifyToken(token)
+    if (response.success) {
+      setUser(response.data.user)
+    } else {
+      // Token inválido, limpiar y forzar login manual
+      localStorage.removeItem('battsentinel-token')
+      setToken(null)
+      setUser(null)
     }
-
-    initAuth()
-  }, [token])
+  } catch (error) {
+    console.error('Token verification failed:', error)
+    localStorage.removeItem('battsentinel-token')
+    setToken(null)
+    setUser(null)
+  }
+} else {
+  setUser(null) // No hay token, usuario no autenticado
+}
+setLoading(false)
 
   const login = async (credentials) => {
     try {
