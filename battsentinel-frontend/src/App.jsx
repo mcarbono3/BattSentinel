@@ -15,7 +15,7 @@ import LoginPage from '@/pages/LoginPage'
 import Dashboard from '@/pages/Dashboard'
 import BatteriesPage from '@/pages/BatteriesPage'
 import BatteryDetailPage from '@/pages/BatteryDetailPage'
-import DigitalTwinPage from '@/pages/DigitalTwinPage'
+import DigitalTwinPage from '@/pages/DigitalTwinPage' // Asegúrate de que este componente existe
 import AnalyticsPage from '@/pages/AnalyticsPage'
 import AlertsPage from '@/pages/AlertsPage'
 import SettingsPage from '@/pages/SettingsPage'
@@ -102,45 +102,57 @@ function AppContent() {
           </ProtectedRoute>
         } 
       />
-      <Route 
-        path="/digital-twin/:id" 
+      {/* AÑADIDA: Ruta para DigitalTwinPage sin un ID */}
+      <Route
+        path="/digital-twin" // <-- Esta es la nueva ruta sin ":id"
         element={
           <ProtectedRoute>
             <AppLayout>
               <DigitalTwinPage />
             </AppLayout>
           </ProtectedRoute>
-        } 
+        }
       />
-      <Route 
-        path="/analytics" 
+      {/* Mantenida: Ruta para DigitalTwinPage con un ID */}
+      <Route
+        path="/digital-twin/:id"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <DigitalTwinPage />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/analytics"
         element={
           <ProtectedRoute>
             <AppLayout>
               <AnalyticsPage />
             </AppLayout>
           </ProtectedRoute>
-        } 
+        }
       />
-      <Route 
-        path="/alerts" 
+      <Route
+        path="/alerts"
         element={
           <ProtectedRoute>
             <AppLayout>
               <AlertsPage />
             </AppLayout>
           </ProtectedRoute>
-        } 
+        }
       />
-      <Route 
-        path="/settings" 
+      <Route
+        path="/settings"
         element={
           <ProtectedRoute>
             <AppLayout>
               <SettingsPage />
             </AppLayout>
           </ProtectedRoute>
-        } 
+        }
       />
       {/* Cualquier ruta no encontrada redirige a landing page */}
       <Route path="*" element={<Navigate to="/" replace />} />
