@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState } from 'react' // <--- No es necesario si isOpen y onToggle vienen de props
 import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Zap,
+  // Zap, // No utilizada, puedes eliminarla si no la necesitas
   Activity,
   AlertTriangle
 } from 'lucide-react'
@@ -63,10 +63,21 @@ const navigationItems = [
   }
 ]
 
+// Recibe isOpen y onToggle como props desde el componente padre
 export default function Sidebar({ isOpen, onToggle }) {
   const location = useLocation()
   const { user } = useAuth()
-  const { batteries, batteryCount, criticalBatteries } = useBattery()
+  const { batteries, alerts } = useBattery()
+
+  // Calcula batteryCount si no viene del contexto
+  // const batteryCount = batteries?.length || 0; // Línea original 
+  const batteryCount = batteries?.length > 0 ? batteries.length : 1; // Fuerza a 1 si no hay
+  // Calcula criticalBatteries aquí si no viene del contexto, o verifica si tu contexto ya lo proporciona
+  const criticalBatteries = batteries?.filter(battery =>
+    battery.soh < 70 || battery.soc < 20 || battery.temperature > 45
+  ) || [];
+
+  const activeAlerts = alerts?.filter(alert => alert.status === 'active') || []
   
   const isActive = (href) => {
     if (href === '/dashboard') {
@@ -84,9 +95,9 @@ export default function Sidebar({ isOpen, onToggle }) {
           </Badge>
         ) : null
       case '/alerts':
-        return criticalBatteries.length > 0 ? (
+        return activeAlerts.length > 0 ? (
           <Badge variant="destructive" className="ml-auto">
-            {criticalBatteries.length}
+            {activeAlerts.length}
           </Badge>
         ) : null
       default:
@@ -96,14 +107,16 @@ export default function Sidebar({ isOpen, onToggle }) {
 
   return (
     <div className={cn(
-      "relative flex flex-col bg-card border-r border-border transition-all duration-300",
-      isOpen ? "w-64" : "w-16"
+      "relative flex flex-col bg-card border-r border-border transition-all duration-300 h-screen", // Añadir h-screen para altura completa
+      isOpen ? "w-64" : "w-16",
+      // Ajustes responsivos: el sidebar se ocultará en pantallas pequeñas y aparecerá con un overlay si decides implementarlo
+      "hidden md:flex" // Ocultar por defecto en móvil, mostrar en pantallas medianas y grandes
     )}>
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border">
+      {/* Header con el botón de toggle siempre visible y ajustado */}
+      <div className="flex items-center justify-between p-4 border-b border-border relative"> {/* relative para posicionar el botón de toggle */}
         <div className={cn(
           "flex items-center space-x-3 transition-opacity duration-200",
-          isOpen ? "opacity-100" : "opacity-0"
+          isOpen ? "opacity-100" : "opacity-0 pointer-events-none" // pointer-events-none para que el botón toggle sea clicable
         )}>
           <img 
             src={battSentinelLogo} 
@@ -116,11 +129,15 @@ export default function Sidebar({ isOpen, onToggle }) {
           </div>
         </div>
         
+        {/* Botón de toggle siempre en la esquina superior derecha del header del sidebar */}
         <Button
           variant="ghost"
           size="sm"
           onClick={onToggle}
-          className="h-8 w-8 p-0"
+          className={cn(
+            "h-8 w-8 p-0",
+            isOpen ? "" : "absolute top-4 right-4" // Si está colapsado, posiciona en la esquina superior derecha
+          )}
         >
           {isOpen ? (
             <ChevronLeft className="h-4 w-4" />
@@ -136,12 +153,12 @@ export default function Sidebar({ isOpen, onToggle }) {
           <div className="flex items-center space-x-3">
             <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center">
               <span className="text-sm font-medium text-primary-foreground">
-                {user.username?.charAt(0).toUpperCase()}
+                {user.name?.charAt(0).toUpperCase() || 'U'}
               </span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground truncate">
-                {user.username}
+                {user.name || 'Usuario'}
               </p>
               <p className="text-xs text-muted-foreground capitalize">
                 {user.role}
@@ -159,7 +176,8 @@ export default function Sidebar({ isOpen, onToggle }) {
             const active = isActive(item.href)
             const badge = getItemBadge(item)
             
-            // Skip items that require a battery if none are available
+            const isDisabled = item.requiresBattery && batteryCount === 0;
+
             if (item.requiresBattery && batteryCount === 0) {
               return null
             }
@@ -167,15 +185,22 @@ export default function Sidebar({ isOpen, onToggle }) {
             return (
               <Link
                 key={item.href}
-                to={item.href}
+                to={isDisabled ? '#' : item.href}
                 className={cn(
                   "flex items-center space-x-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200",
                   "hover:bg-accent hover:text-accent-foreground",
                   active 
                     ? "bg-primary text-primary-foreground" 
-                    : "text-muted-foreground"
+                    : "text-muted-foreground",
+                  isDisabled && "opacity-50 cursor-not-allowed",
+                  !isOpen && "justify-center" // Centrar icono cuando está colapsado
                 )}
                 title={!isOpen ? item.title : undefined}
+                onClick={(e) => {
+                  if (isDisabled) {
+                    e.preventDefault();
+                  }
+                }}
               >
                 <Icon className="h-4 w-4 flex-shrink-0" />
                 {isOpen && (
@@ -239,4 +264,3 @@ export default function Sidebar({ isOpen, onToggle }) {
     </div>
   )
 }
-
