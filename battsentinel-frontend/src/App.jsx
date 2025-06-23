@@ -23,7 +23,7 @@ import LoadingScreen from '@/components/ui/LoadingScreen'
 
 import './App.css'
 
-// Protected Route Component
+// Protected Route Component - Modificado para permitir acceso directo al demo
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
   
@@ -31,10 +31,7 @@ function ProtectedRoute({ children }) {
     return <LoadingScreen />
   }
   
-  if (!user) {
-    return <Navigate to="/login" replace />
-  }
-  
+  // Permitir acceso directo al demo sin autenticación
   return children
 }
 
@@ -55,7 +52,7 @@ function AppLayout({ children }) {
   )
 }
 
-// App Content Component
+// App Content Component - Modificado para siempre ir a landing page inicialmente
 function AppContent() {
   const { user, loading } = useAuth()
   
@@ -65,14 +62,16 @@ function AppContent() {
   
   return (
     <Routes>
-      <Route 
-        path="/" 
-        element={user ? <Navigate to="/dashboard" replace /> : <LandingPage />} 
-      />
+      {/* Ruta principal siempre va a LandingPage */}
+      <Route path="/" element={<LandingPage />} />
+      
+      {/* Ruta de login mantiene funcionalidad original */}
       <Route 
         path="/login" 
         element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} 
       />
+      
+      {/* Rutas del dashboard - ahora accesibles sin autenticación para demo */}
       <Route 
         path="/dashboard" 
         element={
@@ -143,6 +142,7 @@ function AppContent() {
           </ProtectedRoute>
         } 
       />
+      {/* Cualquier ruta no encontrada redirige a landing page */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
