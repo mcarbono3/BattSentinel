@@ -22,7 +22,8 @@ import {
   Plus,
   Eye,
   Settings,
-  RefreshCw
+  RefreshCw,
+  Home // Asegúrate de que Home esté importado
 } from 'lucide-react'
 
 // Mock data for demonstration
@@ -132,8 +133,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header del Dashboard */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
           <p className="text-muted-foreground">
@@ -141,7 +142,18 @@ export default function Dashboard() {
           </p>
         </div>
         
+        {/* Contenedor de botones de acción */}
         <div className="flex items-center space-x-2">
+          {/* Botón de Regresar al Inicio (NUEVA UBICACIÓN) */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/')} // Navega a la ruta raíz (LandingPage)
+          >
+            <Home className="h-4 w-4 mr-2" />
+            Regresar al Inicio
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -245,7 +257,7 @@ export default function Dashboard() {
                 {displayBatteries.map((battery) => (
                   <div
                     key={battery.id}
-                    className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer"
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer gap-4"
                     onClick={() => navigate(`/batteries/${battery.id}`)}
                   >
                     <div className="flex items-center space-x-4">
@@ -258,29 +270,30 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-6">
+                    {/* Responsive metrics grid */}
+                    <div className="grid grid-cols-3 sm:flex sm:items-center gap-4 sm:gap-6">
                       <div className="text-center">
-                        <p className="text-sm font-medium">SOC</p>
-                        <p className="text-lg font-bold text-blue-600">
+                        <p className="text-xs sm:text-sm font-medium">SOC</p>
+                        <p className="text-base sm:text-lg font-bold text-blue-600">
                           {formatPercentage(battery.soc, 0)}
                         </p>
                       </div>
 
                       <div className="text-center">
-                        <p className="text-sm font-medium">SOH</p>
-                        <p className="text-lg font-bold text-green-600">
+                        <p className="text-xs sm:text-sm font-medium">SOH</p>
+                        <p className="text-base sm:text-lg font-bold text-green-600">
                           {formatPercentage(battery.soh, 0)}
                         </p>
                       </div>
 
                       <div className="text-center">
-                        <p className="text-sm font-medium">Temp</p>
-                        <p className="text-lg font-bold text-orange-600">
+                        <p className="text-xs sm:text-sm font-medium">Temp</p>
+                        <p className="text-base sm:text-lg font-bold text-orange-600">
                           {formatNumber(battery.temperature, 1)}°C
                         </p>
                       </div>
 
-                      <div className="flex items-center space-x-2">
+                      <div className="col-span-3 sm:col-span-1 flex items-center justify-center sm:justify-start space-x-2">
                         {battery.alerts.length > 0 && (
                           <Badge variant="destructive">
                             {battery.alerts.length}
@@ -342,6 +355,7 @@ export default function Dashboard() {
                 <Settings className="h-4 w-4 mr-2" />
                 Configuración
               </Button>
+              {/* NOTA: El botón "Regresar al Inicio" se movió a la parte superior */}
             </CardContent>
           </Card>
 
@@ -476,4 +490,3 @@ export default function Dashboard() {
     </div>
   )
 }
-
