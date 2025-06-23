@@ -248,10 +248,10 @@ export default function LandingPage() {
                 Beneficios
               </button>
               <Button
-                onClick={handleDemoAccess}
+                onClick={() => navigate('/login')}
                 className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-6 py-2 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
               >
-                Acceder al Demo
+                Acceder al Sistema
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </nav>
@@ -289,10 +289,10 @@ export default function LandingPage() {
                 Beneficios
               </button>
               <Button
-                onClick={handleDemoAccess}
+                onClick={() => navigate('/login')}
                 className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl"
               >
-                Acceder al Demo
+                Acceder al Sistema
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
@@ -343,10 +343,20 @@ export default function LandingPage() {
               </div>
 
               <div className="flex flex-col sm:flex-row gap-4">
-                <Button
-                  onClick={handleDemoAccess}
+                 {/*<Button
+                  onClick={() => navigate('/login')}
                   size="lg"
                   className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-8 py-4 rounded-xl text-lg font-semibold transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+                >
+                  <ArrowRight className="mr-2 h-5 w-5" />
+                  Acceder al Sistema
+                </Button> */} {/* Este es el botón que se eliminó/comentó */}
+                
+                <Button
+                  onClick={handleDemoAccess}
+                  variant="outline"
+                  size="lg"
+                  className="border-2 border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-8 py-4 rounded-xl text-lg font-semibold transition-all duration-300"
                 >
                   <Play className="mr-2 h-5 w-5" />
                   Ver Demo Interactivo
@@ -640,7 +650,7 @@ export default function LandingPage() {
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button
-              onClick={handleDemoAccess}
+              onClick={() => navigate('/login')}
               size="lg"
               className="bg-white text-blue-900 hover:bg-gray-100 px-8 py-4 rounded-xl text-lg font-semibold transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
             >
@@ -652,7 +662,7 @@ export default function LandingPage() {
               onClick={handleDemoAccess}
               variant="outline"
               size="lg"
-              className="border-2 border-white text-white hover:bg-white hover:text-blue-900 px-8 py-4 rounded-xl text-lg font-semibold transition-all duration-300"
+              className="bg-white text-blue-900 hover:bg-gray-100 px-8 py-4 rounded-xl text-lg font-semibold transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
             >
               <Play className="mr-2 h-5 w-5" />
               Ver Demostración
