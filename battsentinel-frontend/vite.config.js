@@ -5,7 +5,7 @@ import path from 'path'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/BattSentinel/',
+  base: '/wind-analysis/',
   plugins: [react(),tailwindcss()],
   resolve: {
     alias: {
