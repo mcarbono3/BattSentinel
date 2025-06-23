@@ -10,6 +10,7 @@ import Sidebar from '@/components/layout/Sidebar'
 import Header from '@/components/layout/Header'
 
 // Page Components
+import LandingPage from '@/pages/LandingPage'
 import LoginPage from '@/pages/LoginPage'
 import Dashboard from '@/pages/Dashboard'
 import BatteriesPage from '@/pages/BatteriesPage'
@@ -64,6 +65,10 @@ function AppContent() {
   
   return (
     <Routes>
+      <Route 
+        path="/" 
+        element={user ? <Navigate to="/dashboard" replace /> : <LandingPage />} 
+      />
       <Route 
         path="/login" 
         element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} 
@@ -138,8 +143,7 @@ function AppContent() {
           </ProtectedRoute>
         } 
       />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }
