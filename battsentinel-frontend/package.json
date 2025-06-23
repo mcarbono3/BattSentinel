@@ -2,7 +2,6 @@
   "name": "battsentinel-frontend",
   "private": true,
   "version": "0.0.0",
-  "homepage": "https://mcarbono3.github.io/BattSentinel",
   "type": "module",
   "scripts": {
     "dev": "vite",
