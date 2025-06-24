@@ -1,17 +1,16 @@
-# src/routes/auth.py
 from flask import Blueprint, request, jsonify, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone # Importa timezone
 import jwt
 import os
 import secrets # Para generar tokens de restablecimiento seguros
-from functools import wraps # Para usar en el decorador jwt_required
+import string # Para caracteres alfanuméricos
 
 # IMPORTANTE: Asegúrate de importar db y User correctamente.
 # db viene de src.models.battery porque allí está la instancia compartida de SQLAlchemy.
 # User viene de src.models.user, donde definimos el modelo actualizado.
 from src.models.battery import db
-from src.models.user import User
+from src.models.user import User # Asegúrate de que User tenga password_hash y sus métodos
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -22,269 +21,227 @@ def generate_jwt_token(user):
     secret_key = current_app.config.get('SECRET_KEY', 'default-fallback-secret-for-jwt-if-not-set')
 
     # Define el tiempo de expiración para los tokens (ej. 24 horas)
-    # Asegúrate de que datetime.now() use el mismo timezone que 'exp' en el payload.
-    # Se recomienda usar UTC para consistencia.
-    jwt_expiration_delta = timedelta(hours=24)
+    jwt_expiration_delta = timedelta(hours=24) # Puedes ajustar esto
 
     payload = {
         'user_id': user.id,
         'username': user.username,
         'email': user.email,
         'role': user.role, # Asegúrate de que tu modelo User tenga un campo 'role'
-        'exp': datetime.now(timezone.utc) + jwt_expiration_delta # Usar datetime.now(timezone.utc)
+        'exp': datetime.now(timezone.utc) + jwt_expiration_delta # Usa datetime.now(timezone.utc)
     }
-    # Asegúrate de especificar el algoritmo, comúnmente 'HS256'
     return jwt.encode(payload, secret_key, algorithm='HS256')
 
-
-# Decorador para proteger rutas con JWT (¡Reemplaza tu versión existente!)
+# Middleware para proteger rutas que requieren JWT
 def jwt_required():
-    def wrapper(fn):
-        @wraps(fn)
-        def decorator(*args, **kwargs):
-            auth_header = request.headers.get('Authorization')
-            if not auth_header or not auth_header.startswith('Bearer '):
-                current_app.logger.warning("Intento de acceso sin token o token mal formado.")
-                return jsonify({'success': False, 'error': 'Token de autenticación faltante o inválido'}), 401
+    def decorator(f):
+        def wrapper(*args, **kwargs):
+            token = None
+            if 'Authorization' in request.headers:
+                token = request.headers['Authorization'].split(" ")[1]
 
-            token = auth_header.split(' ')[1]
+            if not token:
+                return jsonify({'success': False, 'error': 'Token is missing!'}), 401
+            
             secret_key = current_app.config.get('SECRET_KEY', 'default-fallback-secret-for-jwt-if-not-set')
 
             try:
-                # Decodificar el token con la misma clave secreta y algoritmo
-                payload = jwt.decode(token, secret_key, algorithms=['HS256'])
+                # Intenta decodificar el token con el algoritmo correcto
+                data = jwt.decode(token, secret_key, algorithms=['HS256'])
+                current_user = User.query.get(data['user_id'])
+                if not current_user:
+                    return jsonify({'success': False, 'error': 'User not found'}), 401
                 
-                # Adjunta la información del usuario del token a request.current_user
-                # Esto hace que los datos del usuario estén disponibles en la función de la ruta
-                request.current_user = payload
+                # Adjunta el objeto de usuario al objeto request para que esté disponible en la ruta
+                request.current_user = current_user.to_dict() # Pasa el diccionario del usuario
 
             except jwt.ExpiredSignatureError:
-                current_app.logger.warning("Token expirado.")
-                return jsonify({'success': False, 'error': 'Token expirado'}), 401
+                return jsonify({'success': False, 'error': 'Token has expired!'}), 401
             except jwt.InvalidTokenError:
-                current_app.logger.warning("Token inválido.")
-                return jsonify({'success': False, 'error': 'Token inválido'}), 401
+                return jsonify({'success': False, 'error': 'Token is invalid!'}), 401
             except Exception as e:
-                current_app.logger.error(f"Error inesperado en jwt_required: {e}")
-                return jsonify({'success': False, 'error': 'Error de autenticación'}), 500
-            
-            return fn(*args, **kwargs)
-        return decorator
-    return wrapper
+                return jsonify({'success': False, 'error': str(e)}), 500
 
-# --- Rutas de autenticación ---
+            return f(*args, **kwargs)
+        wrapper.__name__ = f.__name__ # Esto es importante para Flask
+        return wrapper
+    return decorator
+
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
-    """Registra un nuevo usuario en el sistema."""
     data = request.get_json()
     username = data.get('username')
     email = data.get('email')
     password = data.get('password')
-    role = data.get('role', 'user') # Rol por defecto 'user'
+    role = data.get('role', 'user') # Por defecto 'user'
 
     if not username or not email or not password:
-        return jsonify({'success': False, 'error': 'Faltan campos obligatorios (username, email, password)'}), 400
+        return jsonify({'success': False, 'error': 'Missing username, email, or password'}), 400
 
     if User.query.filter_by(username=username).first():
-        return jsonify({'success': False, 'error': 'El nombre de usuario ya existe'}), 409
+        return jsonify({'success': False, 'error': 'Username already exists'}), 409
+    
     if User.query.filter_by(email=email).first():
-        return jsonify({'success': False, 'error': 'El email ya está registrado'}), 409
+        return jsonify({'success': False, 'error': 'Email already exists'}), 409
 
     try:
         new_user = User(username=username, email=email, role=role)
         new_user.set_password(password)
         db.session.add(new_user)
         db.session.commit()
-        
-        # Opcional: Podrías generar un token para iniciar sesión automáticamente o
-        # solo devolver éxito y dejar que el usuario inicie sesión después.
-        # Por ahora, solo confirmamos el registro.
-        return jsonify({
-            'success': True,
-            'message': 'Usuario registrado exitosamente',
-            'data': new_user.to_dict()
-        }), 201
+        return jsonify({'success': True, 'message': 'User registered successfully'}), 201
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Error durante el registro: {e}")
-        return jsonify({'success': False, 'error': f'Error interno del servidor al registrar usuario: {str(e)}'}), 500
-
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
-    """Permite a los usuarios iniciar sesión y obtener un token JWT."""
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
 
-    if not username or not password:
-        return jsonify({'success': False, 'error': 'Faltan credenciales (username, password)'}), 400
-
     user = User.query.filter_by(username=username).first()
 
-    if user and user.check_password(password):
-        # Si la contraseña es correcta, genera un JWT
-        token = generate_jwt_token(user)
-        
-        # Actualizar el campo last_login del usuario
-        user.last_login = datetime.now(timezone.utc)
-        db.session.commit()
+    if not user or not user.check_password(password):
+        return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
 
-        return jsonify({
-            'success': True,
-            'message': 'Login exitoso',
-            'data': {
-                'user': user.to_dict(), # Devuelve un diccionario del usuario (sin password_hash)
-                'token': token
-            }
-        }), 200
-    else:
-        # Credenciales inválidas
-        return jsonify({'success': False, 'error': 'Credenciales inválidas'}), 401
+    if not user.active:
+        return jsonify({'success': False, 'error': 'Account is inactive. Please contact support.'}), 403
+
+    token = generate_jwt_token(user)
+    
+    # Actualiza la última fecha de login
+    user.last_login = datetime.now(timezone.utc)
+    db.session.commit()
+
+    # Devuelve los datos del usuario y el token
+    return jsonify({
+        'success': True,
+        'message': 'Login successful',
+        'data': {
+            'user': user.to_dict(), # Asegúrate de que to_dict() no exponga datos sensibles
+            'token': token
+        }
+    }), 200
+
+# Endpoint para verificar la validez del token
+@auth_bp.route('/verify-token', methods=['GET', 'POST']) # <--- Aquí está la mejora
+@jwt_required()
+def verify_token():
+    """
+    Verifica la validez del token JWT y devuelve la información del usuario.
+    El decorador @jwt_required() ya se encarga de la lógica de verificación.
+    """
+    try:
+        # Si llegamos aquí, el token es válido y request.current_user contiene los datos.
+        user_data = request.current_user
+        return jsonify({'success': True, 'message': 'Token is valid', 'data': user_data}), 200
+    except Exception as e:
+        # Esto es un catch-all, pero @jwt_required() debería manejar la mayoría de los errores.
+        current_app.logger.error(f"Error inesperado en verify_token: {e}")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
 
 @auth_bp.route('/logout', methods=['POST'])
-# @jwt_required() # Opcional: puedes proteger el logout si quieres invalidar tokens en el servidor
+@jwt_required()
 def logout():
-    """Endpoint para cerrar sesión (principalmente para limpieza en el cliente)."""
-    # Para JWTs, el "logout" en el lado del cliente es simplemente borrar el token.
-    # Si quisieras invalidar el token en el servidor, necesitarías un mecanismo de lista negra.
-    return jsonify({'success': True, 'message': 'Sesión cerrada exitosamente'}), 200
+    # En un sistema sin listas negras de JWT (blacklist), el logout en el servidor
+    # es puramente simbólico y se basa en que el cliente elimine el token.
+    # Si tuvieras un sistema de blacklist, aquí es donde invalidarías el token.
+    return jsonify({'success': True, 'message': 'Logged out successfully'}), 200
 
-
-@auth_bp.route('/verify-token', methods=['GET'])
-@jwt_required() # Protege esta ruta para que solo los tokens válidos puedan acceder
-def verify_token():
-    """Verifica la validez del token JWT y devuelve los datos básicos del usuario."""
-    # Si el decorador jwt_required pasó, significa que el token es válido y no expiró.
-    # request.current_user ya contiene el payload decodificado del token.
-    user_id_from_token = request.current_user.get('user_id')
-
-    user = User.query.get(user_id_from_token)
-    if user:
-        # Devuelve los datos del usuario del token/DB, y el token actual (o uno refrescado si se desea)
-        return jsonify({
-            'success': True,
-            'message': 'Token válido',
-            'data': {
-                'user': user.to_dict(), # Asegúrate de que to_dict() no exponga datos sensibles
-                'token': request.headers.get('Authorization').split(' ')[1] # Devuelve el mismo token que se usó
-            }
-        }), 200
-    else:
-        # Esto no debería ocurrir si el token es válido y el usuario existe en DB.
-        current_app.logger.error(f"Usuario con ID {user_id_from_token} no encontrado a pesar de token válido.")
-        return jsonify({'success': False, 'error': 'Usuario no encontrado para el token'}), 404
-
-
+# Ruta para solicitar restablecimiento de contraseña
 @auth_bp.route('/request-password-reset', methods=['POST'])
 def request_password_reset():
-    """Solicita un enlace para restablecer la contraseña a través de un email."""
     data = request.get_json()
     email = data.get('email')
-
-    if not email:
-        return jsonify({'success': False, 'error': 'Se requiere el email para restablecer la contraseña'}), 400
-
     user = User.query.filter_by(email=email).first()
 
-    if user:
-        # Generar un token de reseteo seguro y de longitud limitada
-        reset_token = secrets.token_urlsafe(32) # Genera un token de 32 bytes URL-safe
-        user.reset_token = reset_token
-        # Token válido por 1 hora, usando timezone.utc para consistencia
-        user.reset_token_expiration = datetime.now(timezone.utc) + timedelta(hours=1) 
-        db.session.commit()
+    if not user:
+        # Por seguridad, no reveles si el email existe o no
+        return jsonify({'success': True, 'message': 'If an account with that email exists, a password reset link has been sent.'}), 200
 
-        # Enviar email con el enlace de reseteo.
-        # En un entorno real, usarías un servicio de email (SendGrid, Mailgun, etc.).
-        # Por ahora, lo imprimimos en la consola para depuración.
-        reset_link = f"http://localhost:5173/reset-password?token={reset_token}" # Ajusta a la URL de tu frontend
-        current_app.logger.info(f"DEBUG: Enlace de restablecimiento para {user.email}: {reset_link}")
+    # Generar un token de restablecimiento único y de corta duración
+    reset_token = secrets.token_urlsafe(32) # Genera un token seguro y amigable para URL
+    user.reset_token = reset_token
+    user.reset_token_expiration = datetime.now(timezone.utc) + timedelta(hours=1) # Token válido por 1 hora
+    db.session.commit()
 
-        # Siempre devuelve un mensaje genérico para evitar la enumeración de usuarios.
-        return jsonify({'success': True, 'message': 'Si tu email está registrado, recibirás un enlace de restablecimiento de contraseña.'}), 200
-    else:
-        # Para evitar la enumeración de usuarios, siempre devuelve un mensaje genérico.
-        current_app.logger.warning(f"Intento de restablecimiento de contraseña para email no registrado: {email}")
-        return jsonify({'success': True, 'message': 'Si tu email está registrado, recibirás un enlace de restablecimiento de contraseña.'}), 200
+    # TODO: Enviar el email con el enlace de restablecimiento
+    # En un entorno real, usarías una librería de envío de correos electrónicos.
+    # El enlace al frontend sería algo como: `http://localhost:5173/reset-password?token={reset_token}`
+    reset_link = f"{request.url_root.replace('/api/auth/', '')}reset-password?token={reset_token}"
+    print(f"Password reset link for {user.email}: {reset_link}") # SOLO PARA DESARROLLO
 
+    return jsonify({'success': True, 'message': 'Password reset link sent to your email.'}), 200
 
+# Ruta para restablecer la contraseña usando el token
 @auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():
-    """Restablece la contraseña de un usuario usando un token válido."""
     data = request.get_json()
     token = data.get('token')
     new_password = data.get('new_password')
 
     if not token or not new_password:
-        return jsonify({'success': False, 'error': 'Faltan token o nueva contraseña'}), 400
+        return jsonify({'success': False, 'error': 'Missing token or new password'}), 400
 
     user = User.query.filter_by(reset_token=token).first()
 
-    # Verifica si el usuario existe y si el token es válido y no ha expirado
-    if user and user.reset_token_expiration and user.reset_token_expiration > datetime.now(timezone.utc):
-        user.set_password(new_password)
-        user.reset_token = None # Invalida el token después de usarlo
-        user.reset_token_expiration = None
+    if not user or user.reset_token_expiration < datetime.now(timezone.utc):
+        return jsonify({'success': False, 'error': 'Invalid or expired reset token'}), 400
+
+    user.set_password(new_password)
+    user.reset_token = None # Invalida el token después de usarlo
+    user.reset_token_expiration = None
+    db.session.commit()
+
+    return jsonify({'success': True, 'message': 'Password has been reset successfully.'}), 200
+
+@auth_bp.route('/users/<int:user_id>/profile', methods=['PUT'])
+@jwt_required()
+def update_user_profile(user_id):
+    """Actualizar el perfil del usuario actualmente autenticado"""
+    try:
+        data = request.get_json()
+        
+        # Asegurarse de que el usuario solo pueda actualizar su propio perfil
+        # A menos que sea un admin y se esté actualizando otro usuario
+        # Puedes añadir más lógica aquí si los administradores pueden editar perfiles de otros
+        if request.current_user['id'] != user_id and request.current_user['role'] != 'admin':
+            return jsonify({'success': False, 'error': 'Unauthorized to update this profile'}), 403
+
+        user = User.query.get(user_id)
+
+        if not user:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+
+        # Solo permite actualizar ciertos campos del propio perfil
+        if 'username' in data:
+            user.username = data['username']
+        if 'email' in data:
+            user.email = data['email']
+        # Los usuarios no deben poder cambiar su rol directamente aquí
+        # if 'role' in data: # Solo admin debería cambiar roles
+        #     if request.current_user['role'] == 'admin':
+        #         user.role = data['role']
+        #     else:
+        #         return jsonify({'success': False, 'error': 'Unauthorized to change role'}), 403
+
+        if 'email_notifications' in data and hasattr(user, 'email_notifications'):
+            user.email_notifications = data['email_notifications']
+        if 'whatsapp_number' in data and hasattr(user, 'whatsapp_number'):
+            user.whatsapp_number = data['whatsapp_number']
+        if 'sms_number' in data and hasattr(user, 'sms_number'):
+            user.sms_number = data['sms_number']
+        
+        # Si se proporciona una nueva contraseña para el perfil, se usa set_password
+        if 'password' in data and data['password']:
+            user.set_password(data['password'])
+
         db.session.commit()
-        return jsonify({'success': True, 'message': 'Contraseña restablecida exitosamente'}), 200
-    else:
-        return jsonify({'success': False, 'error': 'Token inválido o expirado. Solicita un nuevo restablecimiento de contraseña.'}), 400
-
-
-@auth_bp.route('/profile', methods=['GET', 'PUT'])
-@jwt_required() # Aplica el decorador para proteger esta ruta
-def profile():
-    """Obtener o actualizar el perfil del usuario autenticado."""
-    # Los datos del usuario ya están en request.current_user gracias a jwt_required
-    user_id = request.current_user.get('user_id')
-    user = User.query.get(user_id)
-
-    if not user:
-        current_app.logger.error(f"Perfil solicitado para usuario con ID {user_id} no encontrado.")
-        return jsonify({'success': False, 'error': 'Usuario no encontrado'}), 404
-
-    if request.method == 'GET':
-        return jsonify({'success': True, 'data': user.to_dict()}), 200
-    
-    elif request.method == 'PUT':
-        try:
-            data = request.get_json()
-            
-            # Permite actualizar ciertos campos del propio perfil
-            if 'username' in data and data['username'] != user.username:
-                # Opcional: Añadir validación para username duplicado
-                if User.query.filter_by(username=data['username']).first():
-                    return jsonify({'success': False, 'error': 'El nuevo nombre de usuario ya está en uso.'}), 409
-                user.username = data['username']
-            
-            if 'email' in data and data['email'] != user.email:
-                # Opcional: Añadir validación para email duplicado
-                if User.query.filter_by(email=data['email']).first():
-                    return jsonify({'success': False, 'error': 'El nuevo email ya está en uso.'}), 409
-                user.email = data['email']
-            
-            # Los usuarios no deben poder cambiar su rol directamente desde esta ruta
-            # if 'role' in data:
-            #     user.role = data['role'] 
-
-            # Actualizar preferencias de notificaciones si existen en el modelo User
-            if 'email_notifications' in data and hasattr(user, 'email_notifications'):
-                user.email_notifications = bool(data['email_notifications'])
-            if 'whatsapp_number' in data and hasattr(user, 'whatsapp_number'):
-                user.whatsapp_number = data['whatsapp_number']
-            if 'sms_number' in data and hasattr(user, 'sms_number'):
-                user.sms_number = data['sms_number']
-            
-            # Si se proporciona una nueva contraseña, la hashea y la guarda
-            if 'password' in data and data['password']:
-                # Aquí podrías añadir validación de la contraseña actual si lo deseas
-                user.set_password(data['password'])
-
-            db.session.commit()
-            return jsonify({'success': True, 'message': 'Perfil actualizado exitosamente', 'data': user.to_dict()}), 200
-        except Exception as e:
-            db.session.rollback()
-            current_app.logger.error(f"Error al actualizar perfil del usuario {user_id}: {e}")
-            return jsonify({'success': False, 'error': f'Error al actualizar el perfil: {str(e)}'}), 500
+        return jsonify({'success': True, 'message': 'Profile updated successfully', 'data': user.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating user profile: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
