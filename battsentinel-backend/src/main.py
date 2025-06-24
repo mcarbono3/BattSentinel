@@ -1,13 +1,14 @@
 import os
 import sys
 # DON'T CHANGE THIS !!!
-# sys.path.insert(0, os.path.dirname(os.path.dirname(__file__))) # Línea comentada
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 from src.models.battery import db
 # IMPORTANTE: Asegúrate de importar el modelo User desde user.py
 from src.models.user import User #
+
 from src.routes.battery import battery_bp
 from src.routes.ai_analysis import ai_bp
 from src.routes.digital_twin import twin_bp
@@ -29,7 +30,9 @@ app.register_blueprint(notifications_bp, url_prefix='/api/notifications')
 app.register_blueprint(auth_bp, url_prefix='/api/auth')
 
 # Database configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"
+# Usa la variable de entorno DATABASE_URL que Render te proporciona para PostgreSQL
+# Si DATABASE_URL no está definida (ej. en desarrollo local), usa SQLite como fallback
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
@@ -44,13 +47,13 @@ with app.app_context():
 
     # Crear usuario administrador si no existe
     if not User.query.filter_by(username='admin').first():
-        admin_user = User(username='admin', email='admin@battsentinel.com')
+        admin_user = User(username='admin', email='admin@battsentinel.com', role='admin') # Asegúrate de que el rol se asigne
         admin_user.set_password('admin123') # Usa tu contraseña deseada
-        db.session.add(admin_user) #
-        db.session.commit() #
-        print("Usuario 'admin' creado/inicializado en la base de datos.") #
+        db.session.add(admin_user)
+        db.session.commit()
+        print("Usuario 'admin' creado/inicializado en la base de datos.")
     else:
-        print("El usuario 'admin' ya existe.") #
+        print("El usuario 'admin' ya existe.")
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -66,7 +69,7 @@ def serve(path):
         if os.path.exists(index_path):
             return send_from_directory(static_folder_path, 'index.html')
         else:
-            return "Frontend static files not found.", 404
+            return "Index.html not found", 404
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=os.environ.get('PORT', 5000))
+    app.run(debug=True)
