@@ -1,5 +1,5 @@
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timezone
 
 # IMPORTANTE: No importes SQLAlchemy aquí y no definas 'db = SQLAlchemy()'.
 # La instancia 'db' DEBE importarse desde donde ya está inicializada globalmente,
