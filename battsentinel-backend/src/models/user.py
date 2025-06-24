@@ -1,10 +1,12 @@
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 
+# IMPORTANTE: No importes SQLAlchemy aquí y no definas 'db = SQLAlchemy()'.
+# La instancia 'db' DEBE importarse desde donde ya está inicializada globalmente,
+# que en tu proyecto es src.models.battery.
 from src.models.battery import db # <-- ¡Solo importa la instancia 'db' aquí!
 
 class User(db.Model):
-    __table_args__ = {'extend_existing': True} # <-- ¡Añade esta línea!
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
@@ -24,7 +26,7 @@ class User(db.Model):
     activation_token = db.Column(db.String(128), unique=True, nullable=True)
 
     # Campos para preferencias de usuario y contacto
-    email_notifications = db.Column(db.Boolean, default=True, nullable=False)
+    email_notifications = db.Column(db.Boolean, default=True)
     whatsapp_number = db.Column(db.String(50), nullable=True)
     sms_number = db.Column(db.String(50), nullable=True)
 
