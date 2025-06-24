@@ -1,12 +1,10 @@
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 
-# IMPORTANTE: No importes SQLAlchemy aquí y no definas 'db = SQLAlchemy()'.
-# La instancia 'db' DEBE importarse desde donde ya está inicializada globalmente,
-# que en tu proyecto es src.models.battery.
 from src.models.battery import db # <-- ¡Solo importa la instancia 'db' aquí!
 
 class User(db.Model):
+    __table_args__ = {'extend_existing': True} # <-- ¡Añade esta línea!
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
@@ -61,6 +59,6 @@ class User(db.Model):
             'whatsapp_number': self.whatsapp_number,
             'sms_number': self.sms_number,
             'last_login': self.last_login.isoformat() if self.last_login else None,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
