@@ -1,18 +1,16 @@
-from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 
-# Asume que 'db' se inicializa en otro lugar (ej. en main.py)
-# y luego se importa aquí. Si no es así, la instancia de SQLAlchemy
-# debe venir del mismo lugar que en main.py y auth.py, que es
-# src.models.battery
-from src.models.battery import db # Importa la instancia 'db' de donde está definida globalmente
+# IMPORTANTE: No importes SQLAlchemy aquí y no definas 'db = SQLAlchemy()'.
+# La instancia 'db' DEBE importarse desde donde ya está inicializada globalmente,
+# que en tu proyecto es src.models.battery.
+from src.models.battery import db # <-- ¡Solo importa la instancia 'db' aquí!
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    
+
     # Campo para almacenar el hash de la contraseña
     password_hash = db.Column(db.String(128), nullable=False)
 
@@ -31,7 +29,7 @@ class User(db.Model):
     email_notifications = db.Column(db.Boolean, default=True, nullable=False)
     whatsapp_number = db.Column(db.String(50), nullable=True)
     sms_number = db.Column(db.String(50), nullable=True)
-    
+
     # Campo para auditoría (último login)
     last_login = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
