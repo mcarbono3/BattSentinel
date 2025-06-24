@@ -6,15 +6,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 from src.models.battery import db
+# IMPORTANTE: Asegúrate de importar el modelo User desde user.py
+from src.models.user import User #
 from src.routes.battery import battery_bp
 from src.routes.ai_analysis import ai_bp
 from src.routes.digital_twin import twin_bp
 from src.routes.notifications import notifications_bp
 from src.routes.auth import auth_bp
-
-# Crear carpeta 'database' si no existe
-db_dir = os.path.join(os.path.dirname(__file__), 'database')
-os.makedirs(db_dir, exist_ok=True)
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.config['SECRET_KEY'] = 'BattSentinel#2024$SecureKey!AI'
@@ -40,8 +38,19 @@ upload_dir = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(upload_dir, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = upload_dir
 
+# Bloque para inicializar la base de datos y crear el usuario 'admin'
 with app.app_context():
-    db.create_all()
+    db.create_all() # Crea todas las tablas, incluyendo la nueva columna password_hash
+
+    # Crear usuario administrador si no existe
+    if not User.query.filter_by(username='admin').first():
+        admin_user = User(username='admin', email='admin@battsentinel.com')
+        admin_user.set_password('admin123') # Usa tu contraseña deseada
+        db.session.add(admin_user) #
+        db.session.commit() #
+        print("Usuario 'admin' creado/inicializado en la base de datos.") #
+    else:
+        print("El usuario 'admin' ya existe.") #
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -57,12 +66,7 @@ def serve(path):
         if os.path.exists(index_path):
             return send_from_directory(static_folder_path, 'index.html')
         else:
-            return "BattSentinel API is running", 200
-
-@app.errorhandler(413)
-def too_large(e):
-    return {"error": "File too large"}, 413
+            return "Frontend static files not found.", 404
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-
+    app.run(debug=True, host='0.0.0.0', port=os.environ.get('PORT', 5000))
