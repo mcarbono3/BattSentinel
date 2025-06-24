@@ -10,6 +10,7 @@ cycler==0.12.1
 Flask==3.1.1
 flask-cors==6.0.0
 Flask-SQLAlchemy==3.1.1
+psycopg2-binary
 flatbuffers==25.2.10
 fonttools==4.58.4
 gast==0.6.0
@@ -42,7 +43,6 @@ numpy==1.24.3
 opencv-python==4.11.0.86
 opt_einsum==3.4.0
 optree==0.16.0
-psycopg2-binary
 pip==25.1.1
 packaging==25.0
 pandas==2.2.2
