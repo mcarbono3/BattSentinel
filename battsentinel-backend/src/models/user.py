@@ -1,25 +1,44 @@
 from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash # Importa estas funciones
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
 
-db = SQLAlchemy()
+# Asume que 'db' se inicializa en otro lugar (ej. en main.py)
+# y luego se importa aquí. Si no es así, la instancia de SQLAlchemy
+# debe venir del mismo lugar que en main.py y auth.py, que es
+# src.models.battery
+from src.models.battery import db # Importa la instancia 'db' de donde está definida globalmente
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    # Nuevo campo para almacenar el hash de la contraseña
-    password_hash = db.Column(db.String(128), nullable=False) # String más largo para el hash
+    
+    # Campo para almacenar el hash de la contraseña
+    password_hash = db.Column(db.String(128), nullable=False)
+
+    # Campos adicionales para roles y estado
+    role = db.Column(db.String(50), default='user', nullable=False) # 'admin', 'technician', 'user'
+    active = db.Column(db.Boolean, default=True, nullable=False) # Para activar/desactivar cuentas
+
+    # Campos para restablecimiento de contraseña
+    reset_token = db.Column(db.String(128), unique=True, nullable=True)
+    reset_token_expiration = db.Column(db.DateTime, nullable=True)
+
+    # Campo para activación de cuenta (por ejemplo, vía email)
+    activation_token = db.Column(db.String(128), unique=True, nullable=True)
+
+    # Campos para preferencias de usuario y contacto
+    email_notifications = db.Column(db.Boolean, default=True, nullable=False)
+    whatsapp_number = db.Column(db.String(50), nullable=True)
+    sms_number = db.Column(db.String(50), nullable=True)
+    
+    # Campo para auditoría (último login)
+    last_login = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     def __repr__(self):
         return f'<User {self.username}>'
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'username': self.username,
-            'email': self.email
-            # No incluir password_hash aquí por seguridad
-        }
 
     # Método para establecer la contraseña (la hashea antes de guardarla)
     def set_password(self, password):
@@ -28,3 +47,22 @@ class User(db.Model):
     # Método para verificar la contraseña
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+    def to_dict(self):
+        """
+        Convierte el objeto User a un diccionario para respuestas JSON.
+        NO incluye campos sensibles como password_hash o tokens.
+        """
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'role': self.role,
+            'active': self.active,
+            'email_notifications': self.email_notifications,
+            'whatsapp_number': self.whatsapp_number,
+            'sms_number': self.sms_number,
+            'last_login': self.last_login.isoformat() if self.last_login else None,
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat()
+        }
