@@ -319,4 +319,3 @@ def init_database(app):
         db.create_all()
         create_sample_data()
         print("Base de datos inicializada")
-
