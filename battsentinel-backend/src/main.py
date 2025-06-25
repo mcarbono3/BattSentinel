@@ -7,14 +7,15 @@ from datetime import datetime, timezone
 
 from flask import Flask, send_from_directory, jsonify
 from flask_cors import CORS
-from models.battery import db
-from models.user import User 
+# *** MEJORA: Importaciones relativas para asegurar que Gunicorn encuentre los módulos ***
+from .models.battery import db
+from .models.user import User 
 
-from routes.battery import battery_bp
-from routes.ai_analysis import ai_bp
-from routes.digital_twin import twin_bp
-from routes.notifications import notifications_bp
-from services.windows_battery import windows_battery_service
+from .routes.battery import battery_bp
+from .routes.ai_analysis import ai_bp
+from .routes.digital_twin import twin_bp
+from .routes.notifications import notifications_bp
+from .services.windows_battery import windows_battery_service
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.config['SECRET_KEY'] = 'BattSentinel#2024$SecureKey!AI'
@@ -41,6 +42,9 @@ db.init_app(app)
 def get_real_time_battery():
     """Endpoint para obtener datos de batería en tiempo real"""
     try:
+        # *** NOTA IMPORTANTE: Este servicio (windows_battery_service) es específico de Windows. ***
+        # *** En Render (servidor Linux), estas funciones probablemente fallarán o devolverán datos incorrectos. ***
+        # *** Considera adaptar esta lógica para un entorno Linux o simular datos si la funcionalidad no es crítica en el backend. ***
         battery_data = windows_battery_service.get_battery_info()
         return jsonify({
             'success': True,
@@ -56,6 +60,7 @@ def get_real_time_battery():
 def get_battery_health_analysis():
     """Endpoint para obtener análisis de salud de la batería"""
     try:
+        # *** NOTA IMPORTANTE: Similar a get_real_time_battery, esta función es dependiente de Windows. ***
         analysis = windows_battery_service.get_battery_health_analysis()
         return jsonify({
             'success': True,
@@ -71,6 +76,7 @@ def get_battery_health_analysis():
 def get_system_info():
     """Endpoint para obtener información del sistema"""
     try:
+        # psutil y platform funcionarán en Linux, pero los datos serán del servidor de Render, no de un cliente Windows.
         import platform
         import psutil
         
@@ -108,6 +114,8 @@ def health_check():
     })
 
 # Ensure database tables are created
+# *** NOTA DE MEJORA: Para producción, db.create_all() y la creación de usuarios deberían ejecutarse como un paso de migración ***
+# *** o script de despliegue, no en cada inicio de la aplicación para evitar sobrecargas o problemas en entornos ya existentes. ***
 with app.app_context():
     db.create_all()
     print("Tablas de la base de datos verificadas/creadas.")
@@ -127,4 +135,3 @@ with app.app_context():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
-
