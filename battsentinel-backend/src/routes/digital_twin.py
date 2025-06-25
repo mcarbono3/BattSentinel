@@ -436,4 +436,3 @@ def generate_basic_optimization(battery_id, params):
         'implementation_timeline': '1-2 weeks',
         'generated_at': datetime.now(timezone.utc).isoformat()
     }
-
