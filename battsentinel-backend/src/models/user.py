@@ -264,4 +264,3 @@ def check_permission(user, action, resource=None):
             return True
     
     return True  # Por defecto permitir para demo
-
