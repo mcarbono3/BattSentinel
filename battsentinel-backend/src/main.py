@@ -27,51 +27,30 @@ app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'sta
 app.config['SECRET_KEY'] = 'BattSentinel#2024$SecureKey!AI'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
-# Configuración de CORS más robusta y explícita
-# Permite todas las solicitudes desde cualquier origen (*)
-# Permite todos los métodos (GET, POST, PUT, DELETE, OPTIONS, etc.)
-# Permite los encabezados "Content-Type" (para JSON) y "Authorization" (para Bearer tokens)
-# Importante: supports_credentials=True es necesario para que el navegador envíe cookies o
-# encabezados de autorización en peticiones cross-origin (lo cual es tu caso).
-CORS(app, origins="*", allow_headers=["Content-Type", "Authorization"], methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], supports_credentials=True)
+# --- CAMBIO IMPORTANTE: CONFIGURACIÓN DE UPLOAD_FOLDER ---
+# Define la carpeta donde se guardarán los archivos subidos.
+# Asegúrate de que esta carpeta exista.
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+# --- FIN CAMBIO IMPORTANTE ---
 
+# Enable CORS for all routes
+# Para desarrollo, origins="*" es práctico. Para producción, especifica tus dominios:
+# CORS(app, origins=["https://battsentinel-frontend.onrender.com", "http://localhost:5173"])
+CORS(app, origins="*") # Mantengo '*' para que funcione fácilmente durante el desarrollo local y el despliegue
 
 # Register blueprints
-app.register_blueprint(battery_bp, url_prefix='/api/batteries')
-app.register_blueprint(ai_bp, url_prefix='/api/ai')
-app.register_blueprint(twin_bp, url_prefix='/api/digital-twin')
-app.register_blueprint(notifications_bp, url_prefix='/api/notifications')
+app.register_blueprint(battery_bp, url_prefix='/api')
+app.register_blueprint(ai_bp, url_prefix='/api')
+app.register_blueprint(twin_bp, url_prefix='/api')
+app.register_blueprint(notifications_bp, url_prefix='/api')
 app.register_blueprint(auth_bp, url_prefix='/api/auth')
-app.register_blueprint(user_bp, url_prefix='/api') # Registra el blueprint de usuario si no está ya
+app.register_blueprint(user_bp, url_prefix='/api/users') # Asumiendo que tienes un blueprint para usuarios
 
-# Configuración de la base de datos
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL').replace('postgres://', 'postgresql://')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
+# Inicializa SQLAlchemy con la aplicación Flask
 db.init_app(app)
 
-# Crea las tablas de la base de datos si no existen
-with app.app_context():
-    db.create_all()
-    print("Tablas de la base de datos verificadas/creadas.")
-
-    # Inicializa el usuario 'admin' si no existe
-    # Asegúrate de que tu modelo User tenga el campo `password_hash`
-    # y el método `set_password`.
-    if not User.query.filter_by(username='admin').first():
-        try:
-            admin_user = User(username='admin', email='admin@battsentinel.com', role='admin')
-            admin_user.set_password('admin123') # Usa una contraseña fuerte para producción
-            db.session.add(admin_user)
-            db.session.commit()
-            print("Usuario 'admin' creado/inicializado en la base de datos.")
-        except Exception as e:
-            db.session.rollback() # Si algo falla, revierte la transacción
-            print(f"Error al crear el usuario 'admin': {e}")
-    else:
-        print("El usuario 'admin' ya existe en la base de datos.")
-
-# === INICIO DE LA MODIFICACIÓN ===
+# --- INICIO DE LA MODIFICACIÓN: Función 'serve' comentada para evitar conflictos ---
 # Función 'serve' comentada para evitar conflictos de ruteo cuando el frontend
 # se despliega de forma independiente.
 # @app.route('/', defaults={'path': ''})
@@ -80,7 +59,7 @@ with app.app_context():
 #     static_folder_path = app.static_folder
 #     if static_folder_path is None:
 #         return "Static folder not configured", 404
-
+#
 #     if path != "" and os.path.exists(os.path.join(static_folder_path, path)):
 #         return send_from_directory(static_folder_path, path)
 #     else:
@@ -89,11 +68,30 @@ with app.app_context():
 #             return send_from_directory(static_folder_path, 'index.html')
 #         else:
 #             return "Frontend not found", 404
-# === FIN DE LA MODIFICACIÓN ===
+# --- FIN DE LA MODIFICACIÓN ---
 
 if __name__ == '__main__':
+    with app.app_context():
+        db.create_all() # Crea las tablas de la base de datos si no existen
+        print("Tablas de la base de datos verificadas/creadas.")
+
+        # Inicializa el usuario 'admin' si no existe
+        # Asegúrate de que tu modelo 'User' tenga un campo `password_hash`
+        # y el método `set_password`.
+        if not User.query.filter_by(username='admin').first():
+            try:
+                admin_user = User(username='admin', email='admin@battsentinel.com', role='admin')
+                admin_user.set_password('admin123') # Usa una contraseña fuerte para producción
+                db.session.add(admin_user)
+                db.session.commit()
+                print("Usuario 'admin' creado/inicializado en la base de datos.")
+            except Exception as e:
+                db.session.rollback() # Si algo falla, revierte la transacción
+                print(f"Error al crear el usuario 'admin': {e}")
+        else:
+            print("El usuario 'admin' ya existe en la base de datos.")
+
     # Obtén el puerto del entorno (Render lo proveerá) o usa 5000 por defecto
     port = int(os.environ.get('PORT', 5000))
-    # Para desarrollo local, puedes usar debug=True. En producción (Render), se recomienda False.
-    # Render configura Gunicorn, por lo que este `app.run` no se ejecutará en producción.
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # Para despliegue, asegúrate de que host='0.0.0.0' para que sea accesible externamente
+    app.run(host='0.0.0.0', port=port, debug=False) # En producción, debug=False
