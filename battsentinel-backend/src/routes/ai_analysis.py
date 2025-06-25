@@ -470,4 +470,3 @@ def generate_sample_analyses_history(battery_id):
         analyses.append(analysis)
     
     return analyses
-
