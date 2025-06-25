@@ -539,4 +539,3 @@ class WindowsBatteryService:
 
 # Instancia global del servicio
 windows_battery_service = WindowsBatteryService()
-
