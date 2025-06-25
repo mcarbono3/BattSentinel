@@ -446,4 +446,3 @@ class XAIExplainer:
             explanation += " Se recomienda monitoreo frecuente."
         
         return explanation
-
