@@ -302,4 +302,3 @@ class ThermalAnalyzer:
             
         except Exception as e:
             return False, f"Error validating image: {str(e)}"
-
