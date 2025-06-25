@@ -27,30 +27,50 @@ app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'sta
 app.config['SECRET_KEY'] = 'BattSentinel#2024$SecureKey!AI'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
-# --- CAMBIO IMPORTANTE: CONFIGURACIÓN DE UPLOAD_FOLDER ---
-# Define la carpeta donde se guardarán los archivos subidos.
-# Asegúrate de que esta carpeta exista.
-app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-# --- FIN CAMBIO IMPORTANTE ---
+# --- CONFIGURACIÓN CRÍTICA DE LA BASE DE DATOS PARA RENDER ---
+# Esta línea estaba faltando y es necesaria para que SQLAlchemy sepa a qué base de datos conectarse.
+# Render inyectará la variable de entorno 'DATABASE_URL' si has configurado una DB.
+# Para desarrollo local sin 'DATABASE_URL', usará 'sqlite:///batt_sentinel.db'.
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL') or 'sqlite:///batt_sentinel.db'
+# --- FIN DE LA CONFIGURACIÓN CRÍTICA ---
 
 # Enable CORS for all routes
-# Para desarrollo, origins="*" es práctico. Para producción, especifica tus dominios:
-# CORS(app, origins=["https://battsentinel-frontend.onrender.com", "http://localhost:5173"])
-CORS(app, origins="*") # Mantengo '*' para que funcione fácilmente durante el desarrollo local y el despliegue
+CORS(app, origins="*")
 
 # Register blueprints
-app.register_blueprint(battery_bp, url_prefix='/api')
-app.register_blueprint(ai_bp, url_prefix='/api')
-app.register_blueprint(twin_bp, url_prefix='/api')
-app.register_blueprint(notifications_bp, url_prefix='/api')
-app.register_blueprint(auth_bp, url_prefix='/api/auth')
-app.register_blueprint(user_bp, url_prefix='/api/users') # Asumiendo que tienes un blueprint para usuarios
+app.register_blueprint(battery_bp)
+app.register_blueprint(ai_bp)
+app.register_blueprint(twin_bp)
+app.register_blueprint(notifications_bp)
+app.register_blueprint(auth_bp)
+app.register_blueprint(user_bp)
 
-# Inicializa SQLAlchemy con la aplicación Flask
+# Initialize database with the app
 db.init_app(app)
 
-# --- INICIO DE LA MODIFICACIÓN: Función 'serve' comentada para evitar conflictos ---
+# Ensure database tables are created and admin user initialized within the app context
+# This block is crucial for Render to set up your database on first deploy
+with app.app_context():
+    db.create_all() # Crea las tablas de la base de datos si no existen
+    print("Tablas de la base de datos verificadas/creadas.")
+
+    # Inicializa el usuario 'admin' si no existe
+    # Asegúrate de que tu modelo 'User' tenga un campo `password_hash`
+    # y el método `set_password`.
+    if not User.query.filter_by(username='admin').first():
+        try:
+            admin_user = User(username='admin', email='admin@battsentinel.com', role='admin')
+            admin_user.set_password('admin123') # Usa una contraseña fuerte para producción
+            db.session.add(admin_user)
+            db.session.commit()
+            print("Usuario 'admin' creado/inicializado en la base de datos.")
+        except Exception as e:
+            db.session.rollback() # Si algo falla, revierte la transacción
+            print(f"Error al crear el usuario 'admin': {e}")
+    else:
+        print("El usuario 'admin' ya existe en la base de datos.")
+
+# === INICIO DE LA MODIFICACIÓN ===
 # Función 'serve' comentada para evitar conflictos de ruteo cuando el frontend
 # se despliega de forma independiente.
 # @app.route('/', defaults={'path': ''})
@@ -59,7 +79,7 @@ db.init_app(app)
 #     static_folder_path = app.static_folder
 #     if static_folder_path is None:
 #         return "Static folder not configured", 404
-#
+
 #     if path != "" and os.path.exists(os.path.join(static_folder_path, path)):
 #         return send_from_directory(static_folder_path, path)
 #     else:
@@ -68,30 +88,10 @@ db.init_app(app)
 #             return send_from_directory(static_folder_path, 'index.html')
 #         else:
 #             return "Frontend not found", 404
-# --- FIN DE LA MODIFICACIÓN ---
+# === FIN DE LA MODIFICACIÓN ===
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all() # Crea las tablas de la base de datos si no existen
-        print("Tablas de la base de datos verificadas/creadas.")
-
-        # Inicializa el usuario 'admin' si no existe
-        # Asegúrate de que tu modelo 'User' tenga un campo `password_hash`
-        # y el método `set_password`.
-        if not User.query.filter_by(username='admin').first():
-            try:
-                admin_user = User(username='admin', email='admin@battsentinel.com', role='admin')
-                admin_user.set_password('admin123') # Usa una contraseña fuerte para producción
-                db.session.add(admin_user)
-                db.session.commit()
-                print("Usuario 'admin' creado/inicializado en la base de datos.")
-            except Exception as e:
-                db.session.rollback() # Si algo falla, revierte la transacción
-                print(f"Error al crear el usuario 'admin': {e}")
-        else:
-            print("El usuario 'admin' ya existe en la base de datos.")
-
     # Obtén el puerto del entorno (Render lo proveerá) o usa 5000 por defecto
     port = int(os.environ.get('PORT', 5000))
-    # Para despliegue, asegúrate de que host='0.0.0.0' para que sea accesible externamente
-    app.run(host='0.0.0.0', port=port, debug=False) # En producción, debug=False
+    # Para despliegue, asegúrate de que host='0.0.0.0' para escuchar en todas las interfaces
+    app.run(host='0.0.0.0', port=port, debug=False) # Desactiva debug para producción
