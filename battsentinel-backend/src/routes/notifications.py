@@ -440,4 +440,3 @@ def generate_alert_message(alert_type, severity):
     }
     
     return messages.get(alert_type, {}).get(severity, 'Alerta del sistema de batería')
-
