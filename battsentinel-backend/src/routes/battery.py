@@ -3,13 +3,17 @@ from werkzeug.utils import secure_filename
 import os
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone # Importar timezone para consistencia
 import json
-import cv2
-from PIL import Image
+import cv2 # Asegúrate de que opencv-python esté instalado
+from PIL import Image # Asegúrate de que Pillow esté instalado
 from src.models.battery import db, Battery, BatteryData, ThermalImage
 from src.services.data_processor import DataProcessor
 from src.services.thermal_analyzer import ThermalAnalyzer
+# --- CAMBIO IMPORTANTE: Importar decoradores de seguridad ---
+from src.routes.auth import require_token, require_role
+# --- FIN CAMBIO IMPORTANTE ---
+
 
 battery_bp = Blueprint('battery', __name__)
 
@@ -21,6 +25,7 @@ def allowed_file(filename, extensions):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in extensions
 
 @battery_bp.route('/batteries', methods=['GET'])
+@require_token # Requiere token para acceder
 def get_batteries():
     """Obtener todas las baterías"""
     try:
@@ -30,9 +35,12 @@ def get_batteries():
             'data': [battery.to_dict() for battery in batteries]
         })
     except Exception as e:
+        # Mejorar la respuesta de error para ser más informativa
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @battery_bp.route('/batteries', methods=['POST'])
+@require_token
+@require_role('admin') # Solo administradores pueden crear baterías
 def create_battery():
     """Crear una nueva batería"""
     try:
@@ -43,25 +51,26 @@ def create_battery():
         
         battery = Battery(
             name=data['name'],
-            battery_type=data.get('battery_type', 'Li-ion'),
+            battery_type=data.get('battery_type', 'Li-ion'), # Default Li-ion
             device_type=data.get('device_type')
         )
-        
         db.session.add(battery)
         db.session.commit()
         
         return jsonify({
             'success': True,
+            'message': 'Battery created successfully',
             'data': battery.to_dict()
-        }), 201
+        }), 201 # 201 Created
         
     except Exception as e:
-        db.session.rollback()
+        db.session.rollback() # Revertir la transacción si falla
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @battery_bp.route('/batteries/<int:battery_id>', methods=['GET'])
+@require_token # Requiere token para acceder
 def get_battery(battery_id):
-    """Obtener una batería específica"""
+    """Obtener detalles de una batería específica"""
     try:
         battery = Battery.query.get_or_404(battery_id)
         return jsonify({
@@ -69,265 +78,259 @@ def get_battery(battery_id):
             'data': battery.to_dict()
         })
     except Exception as e:
+        # get_or_404 ya lanza una excepción que se convierte en 404 por Flask.
+        # Aquí capturamos cualquier otra excepción.
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @battery_bp.route('/batteries/<int:battery_id>/data', methods=['GET'])
+@require_token # Requiere token para acceder
 def get_battery_data(battery_id):
-    """Obtener datos de una batería"""
+    """Obtener datos históricos de una batería con paginación"""
     try:
         battery = Battery.query.get_or_404(battery_id)
-        
-        # Parámetros de consulta
-        limit = request.args.get('limit', 1000, type=int)
-        offset = request.args.get('offset', 0, type=int)
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-        
-        query = BatteryData.query.filter_by(battery_id=battery_id)
-        
-        # Filtros de fecha
-        if start_date:
-            query = query.filter(BatteryData.timestamp >= datetime.fromisoformat(start_date))
-        if end_date:
-            query = query.filter(BatteryData.timestamp <= datetime.fromisoformat(end_date))
-        
-        # Ordenar por timestamp descendente
-        query = query.order_by(BatteryData.timestamp.desc())
-        
-        # Paginación
-        data_points = query.offset(offset).limit(limit).all()
-        total_count = query.count()
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+
+        # Ordenar por timestamp descendente para obtener los más recientes primero
+        data_points = BatteryData.query.filter_by(battery_id=battery_id)\
+                                     .order_by(BatteryData.timestamp.desc())\
+                                     .paginate(page=page, per_page=per_page, error_out=False)
         
         return jsonify({
             'success': True,
-            'data': [point.to_dict() for point in data_points],
+            'data': [dp.to_dict() for dp in data_points.items],
             'pagination': {
-                'total': total_count,
-                'limit': limit,
-                'offset': offset,
-                'has_more': offset + limit < total_count
+                'total_items': data_points.total,
+                'total_pages': data_points.pages,
+                'current_page': data_points.page,
+                'per_page': data_points.per_page,
+                'has_next': data_points.has_next,
+                'has_prev': data_points.has_prev
             }
         })
-        
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @battery_bp.route('/batteries/<int:battery_id>/upload-data', methods=['POST'])
+@require_token
+@require_role('technician') # Técnicos o administradores pueden subir datos
 def upload_battery_data(battery_id):
-    """Cargar datos de batería desde archivo"""
+    """Subir un archivo de datos para una batería"""
     try:
         battery = Battery.query.get_or_404(battery_id)
         
         if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'No file provided'}), 400
+            return jsonify({'success': False, 'error': 'No file part in the request'}), 400
         
         file = request.files['file']
+        
         if file.filename == '':
-            return jsonify({'success': False, 'error': 'No file selected'}), 400
+            return jsonify({'success': False, 'error': 'No selected file'}), 400
         
-        if not allowed_file(file.filename, ALLOWED_EXTENSIONS):
-            return jsonify({
-                'success': False, 
-                'error': 'Invalid file type. Allowed: CSV, TXT, XLSX'
-            }), 400
-        
-        # Guardar archivo temporalmente
-        filename = secure_filename(file.filename)
-        temp_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-        file.save(temp_path)
-        
-        try:
-            # Procesar archivo
-            processor = DataProcessor()
-            data_points = processor.process_file(temp_path, battery_id)
+        if file and allowed_file(file.filename, ALLOWED_EXTENSIONS):
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
             
-            # Guardar en base de datos
-            for point_data in data_points:
-                data_point = BatteryData(**point_data)
-                db.session.add(data_point)
-            
-            db.session.commit()
-            
-            # Limpiar archivo temporal
-            os.remove(temp_path)
-            
-            return jsonify({
-                'success': True,
-                'message': f'Successfully uploaded {len(data_points)} data points',
-                'count': len(data_points)
-            })
-            
-        except Exception as e:
-            # Limpiar archivo temporal en caso de error
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            raise e
+            # Procesar el archivo (esto debería hacerse en un proceso en segundo plano para archivos grandes)
+            # Por simplicidad, lo hago aquí. DataProcessor debe manejar diferentes tipos de archivo.
+            try:
+                processed_data_count = DataProcessor.process_data_file(filepath, battery_id)
+                os.remove(filepath) # Eliminar el archivo después de procesarlo
+                return jsonify({
+                    'success': True,
+                    'message': f'File processed successfully. Added {processed_data_count} data points.'
+                }), 200
+            except Exception as e:
+                os.remove(filepath) # Asegurarse de eliminar el archivo incluso si falla el procesamiento
+                return jsonify({'success': False, 'error': f'Error processing file: {str(e)}'}), 500
+        else:
+            return jsonify({'success': False, 'error': 'File type not allowed'}), 400
             
     except Exception as e:
-        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @battery_bp.route('/batteries/<int:battery_id>/upload-thermal', methods=['POST'])
+@require_token
+@require_role('technician') # Técnicos o administradores pueden subir imágenes térmicas
 def upload_thermal_image(battery_id):
-    """Cargar imagen térmica"""
+    """Subir una imagen térmica para una batería"""
     try:
         battery = Battery.query.get_or_404(battery_id)
-        
+
         if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'No file provided'}), 400
+            return jsonify({'success': False, 'error': 'No file part in the request'}), 400
         
         file = request.files['file']
+        
         if file.filename == '':
-            return jsonify({'success': False, 'error': 'No file selected'}), 400
+            return jsonify({'success': False, 'error': 'No selected file'}), 400
         
-        if not allowed_file(file.filename, ALLOWED_IMAGE_EXTENSIONS):
-            return jsonify({
-                'success': False, 
-                'error': 'Invalid file type. Allowed: PNG, JPG, JPEG, TIFF'
-            }), 400
-        
-        # Generar nombre único
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        unique_filename = f"{timestamp}_{filename}"
-        file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], unique_filename)
-        
-        # Guardar archivo
-        file.save(file_path)
-        
-        try:
-            # Crear registro en base de datos
-            thermal_image = ThermalImage(
-                battery_id=battery_id,
-                filename=unique_filename,
-                original_filename=filename,
-                file_path=file_path
-            )
+        if file and allowed_file(file.filename, ALLOWED_IMAGE_EXTENSIONS):
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
             
-            db.session.add(thermal_image)
-            db.session.commit()
-            
-            # Analizar imagen térmica en segundo plano
-            analyzer = ThermalAnalyzer()
-            analysis_result = analyzer.analyze_image(file_path)
-            
-            # Actualizar registro con resultados del análisis
-            thermal_image.max_temperature = analysis_result.get('max_temperature')
-            thermal_image.min_temperature = analysis_result.get('min_temperature')
-            thermal_image.avg_temperature = analysis_result.get('avg_temperature')
-            thermal_image.hotspot_detected = analysis_result.get('hotspot_detected', False)
-            thermal_image.hotspot_coordinates = json.dumps(analysis_result.get('hotspot_coordinates', []))
-            thermal_image.analysis_completed = True
-            
-            db.session.commit()
-            
-            return jsonify({
-                'success': True,
-                'data': thermal_image.to_dict(),
-                'analysis': analysis_result
-            })
-            
-        except Exception as e:
-            # Limpiar archivo en caso de error
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            raise e
+            # Guardar la imagen temporalmente para análisis
+            file.save(filepath)
+
+            try:
+                # Procesar la imagen (ej. análisis térmico)
+                thermal_analyzer = ThermalAnalyzer(filepath)
+                max_temp = thermal_analyzer.analyze_temperature()
+                
+                # Guardar en la base de datos
+                thermal_image = ThermalImage(
+                    battery_id=battery.id,
+                    file_path=filepath, # Aquí puedes guardar la ruta completa
+                    max_temperature=max_temp,
+                    # Asegúrate de que upload_timestamp esté en tu modelo y se establezca automáticamente
+                    # o pása `datetime.now(timezone.utc)`
+                    upload_timestamp=datetime.now(timezone.utc) # Agrega esto si no es default en el modelo
+                )
+                db.session.add(thermal_image)
+                db.session.commit()
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Thermal image uploaded and analyzed successfully',
+                    'data': thermal_image.to_dict()
+                }), 201 # 201 Created
+                
+            except Exception as e:
+                db.session.rollback()
+                # Eliminar el archivo si el procesamiento falla
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                return jsonify({'success': False, 'error': f'Error processing thermal image: {str(e)}'}), 500
+        else:
+            return jsonify({'success': False, 'error': 'Image file type not allowed'}), 400
             
     except Exception as e:
-        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @battery_bp.route('/batteries/<int:battery_id>/thermal-images', methods=['GET'])
+@require_token # Requiere token para acceder
 def get_thermal_images(battery_id):
     """Obtener imágenes térmicas de una batería"""
     try:
         battery = Battery.query.get_or_404(battery_id)
-        images = ThermalImage.query.filter_by(battery_id=battery_id).order_by(ThermalImage.upload_timestamp.desc()).all()
+        thermal_images = ThermalImage.query.filter_by(battery_id=battery_id)\
+                                           .order_by(ThermalImage.upload_timestamp.desc())\
+                                           .all()
         
         return jsonify({
             'success': True,
-            'data': [image.to_dict() for image in images]
+            'data': [img.to_dict() for img in thermal_images]
         })
-        
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
 @battery_bp.route('/batteries/<int:battery_id>/add-data', methods=['POST'])
+@require_token
+@require_role('technician') # Técnicos o administradores pueden añadir datos
 def add_battery_data(battery_id):
-    """Agregar datos de batería manualmente o desde API"""
+    """Añadir un punto de datos individual a una batería"""
     try:
         battery = Battery.query.get_or_404(battery_id)
         data = request.get_json()
+
+        if not data or any(field not in data for field in ['voltage', 'current', 'temperature']):
+            return jsonify({'success': False, 'error': 'Voltage, current, and temperature are required fields.'}), 400
         
-        if not data:
-            return jsonify({'success': False, 'error': 'No data provided'}), 400
-        
-        # Crear punto de datos
-        data_point = BatteryData(
-            battery_id=battery_id,
-            timestamp=datetime.fromisoformat(data.get('timestamp', datetime.now().isoformat())),
-            voltage=data.get('voltage'),
-            current=data.get('current'),
-            power=data.get('power'),
+        # Validar y convertir timestamp
+        timestamp_str = data.get('timestamp')
+        timestamp = datetime.fromisoformat(timestamp_str) if timestamp_str else datetime.now(timezone.utc)
+
+        battery_data = BatteryData(
+            battery_id=battery.id,
+            timestamp=timestamp,
+            voltage=data['voltage'],
+            current=data['current'],
+            temperature=data['temperature'],
             soc=data.get('soc'),
             soh=data.get('soh'),
-            capacity=data.get('capacity'),
-            cycles=data.get('cycles'),
-            temperature=data.get('temperature'),
-            internal_resistance=data.get('internal_resistance'),
-            data_source=data.get('data_source', 'api')
+            cycles=data.get('cycles')
         )
-        
-        db.session.add(data_point)
+        db.session.add(battery_data)
         db.session.commit()
-        
+
         return jsonify({
             'success': True,
-            'data': data_point.to_dict()
+            'message': 'Data point added successfully',
+            'data': battery_data.to_dict()
         }), 201
-        
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
 @battery_bp.route('/batteries/<int:battery_id>/summary', methods=['GET'])
+@require_token # Requiere token para acceder
 def get_battery_summary(battery_id):
-    """Obtener resumen estadístico de una batería"""
+    """Obtener un resumen analítico de los datos más recientes de una batería"""
     try:
         battery = Battery.query.get_or_404(battery_id)
         
-        # Obtener datos recientes
+        # Obtener los 1000 puntos de datos más recientes
         recent_data = BatteryData.query.filter_by(battery_id=battery_id)\
-            .order_by(BatteryData.timestamp.desc()).limit(1000).all()
+                                       .order_by(BatteryData.timestamp.desc())\
+                                       .limit(1000)\
+                                       .all()
         
         if not recent_data:
             return jsonify({
                 'success': True,
                 'data': {
                     'battery': battery.to_dict(),
-                    'stats': {},
-                    'message': 'No data available'
+                    'stats': {'message': 'No data points available for summary.'}
                 }
             })
+
+        # Convertir a DataFrame de Pandas para un análisis más fácil
+        df = pd.DataFrame([dp.to_dict() for dp in recent_data])
         
-        # Calcular estadísticas
-        df = pd.DataFrame([point.to_dict() for point in recent_data])
+        stats = {
+            'last_updated': df['timestamp'].max().isoformat() if 'timestamp' in df else None,
+            'avg_voltage': df['voltage'].mean() if 'voltage' in df else None,
+            'avg_current': df['current'].mean() if 'current' in df else None,
+            'avg_temperature': df['temperature'].mean() if 'temperature' in df else None,
+            'min_temperature': df['temperature'].min() if 'temperature' in df else None,
+            'max_temperature': df['temperature'].max() if 'temperature' in df else None,
+            'avg_soc': df['soc'].mean() if 'soc' in df else None,
+            'avg_soh': df['soh'].mean() if 'soh' in df else None,
+            'avg_cycles': df['cycles'].mean() if 'cycles' in df else None
+        }
         
-        stats = {}
-        numeric_columns = ['voltage', 'current', 'power', 'soc', 'soh', 'capacity', 'temperature', 'internal_resistance']
-        
-        for col in numeric_columns:
-            if col in df.columns and df[col].notna().any():
-                stats[col] = {
-                    'current': float(df[col].iloc[0]) if pd.notna(df[col].iloc[0]) else None,
-                    'mean': float(df[col].mean()) if pd.notna(df[col].mean()) else None,
-                    'min': float(df[col].min()) if pd.notna(df[col].min()) else None,
-                    'max': float(df[col].max()) if pd.notna(df[col].max()) else None,
-                    'std': float(df[col].std()) if pd.notna(df[col].std()) else None
-                }
-        
+        # Detección de anomalías simple (ejemplo)
+        # Esto es muy básico y debe ser mejorado por tu módulo DataProcessor/AI
+        voltage_std = df['voltage'].std() if 'voltage' in df else 0
+        stats['voltage_variability'] = voltage_std
+        stats['anomaly_detected'] = voltage_std > np.mean(df['voltage']) * 0.1 # Si la desviación es > 10% del promedio
+
+        # Consideraciones de estado de salud (ejemplo muy simple)
+        if 'soh' in df and df['soh'].min() is not None:
+            if df['soh'].min() < 0.7: # Si cualquier SoH cae por debajo del 70%
+                stats['health_status_alert'] = 'Degradación significativa de la salud de la batería detectada.'
+            else:
+                stats['health_status_alert'] = 'Salud de la batería en niveles aceptables.'
+        else:
+            stats['health_status_alert'] = 'No hay datos de SoH para evaluar la salud.'
+
+        # Últimas lecturas importantes
+        last_data_point = recent_data[0] # Ya está ordenado descendentemente
+        stats['last_readings'] = {
+                    'voltage': last_data_point.voltage,
+                    'current': last_data_point.current,
+                    'temperature': last_data_point.temperature,
+                    'soc': last_data_point.soc,
+                    'soh': last_data_point.soh,
+                    'cycles': last_data_point.cycles,
+                    'timestamp': last_data_point.timestamp.isoformat()
+                } if last_data_point else None
+
         # Información adicional
-        stats['data_points'] = len(recent_data)
+        stats['data_points_count'] = len(recent_data)
         stats['date_range'] = {
             'start': recent_data[-1].timestamp.isoformat() if recent_data else None,
             'end': recent_data[0].timestamp.isoformat() if recent_data else None
@@ -345,6 +348,8 @@ def get_battery_summary(battery_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @battery_bp.route('/batteries/<int:battery_id>', methods=['DELETE'])
+@require_token
+@require_role('admin') # Solo administradores pueden eliminar baterías
 def delete_battery(battery_id):
     """Eliminar una batería y todos sus datos"""
     try:
@@ -356,7 +361,7 @@ def delete_battery(battery_id):
             if os.path.exists(image.file_path):
                 os.remove(image.file_path)
         
-        # Eliminar batería (cascade eliminará datos relacionados)
+        # Eliminar batería (cascade eliminará datos relacionados si la relación está configurada con cascade="all, delete-orphan")
         db.session.delete(battery)
         db.session.commit()
         
@@ -368,4 +373,3 @@ def delete_battery(battery_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
-
