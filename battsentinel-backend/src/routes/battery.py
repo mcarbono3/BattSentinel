@@ -274,4 +274,3 @@ def generate_sample_battery_data(battery_id, count=100):
         sample_data.append(data_point)
     
     return sample_data
-
