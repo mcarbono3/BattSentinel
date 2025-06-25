@@ -261,4 +261,3 @@ class DataProcessor:
             
         except Exception as e:
             raise Exception(f"Error getting file preview: {str(e)}")
-
