@@ -1,58 +1,66 @@
-from flask import Blueprint, request, jsonify, current_app
-from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, timedelta, timezone
+from functools import wraps
+from flask import request, jsonify, current_app
 import jwt
-import os
-import secrets
-import string
-from functools import wraps # ¡Este import es crucial para los decoradores!
+from src.models.user import User # Asegúrate de que User esté importado correctamente
+from datetime import datetime, timedelta, timezone # Importar timezone
 
-# IMPORTANTE: Asegúrate de importar db y User correctamente.
-# db viene de src.models.battery porque allí está la instancia compartida de SQLAlchemy.
-# User viene de src.models.user, donde definimos el modelo actualizado.
-from src.models.battery import db
-from src.models.user import User
 
-auth_bp = Blueprint('auth', __name__)
-
-# --- DECORADORES DE AUTENTICACIÓN Y ROLES (SOLUCIÓN AL PROBLEMA DE IMPORTACIÓN) ---
-# Estas funciones DEBEN estar definidas a este nivel para que puedan ser importadas
-# por otros blueprints como user_bp.
-
-# Decorador para requerir un token JWT válido
+# Asumiendo que esta es la estructura de tu decorador require_token
 def require_token(f):
     @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization')
+    def decorated_function(*args, **kwargs):
+        # *** CAMBIO CLAVE: Permitir que las solicitudes OPTIONS pasen ***
+        if request.method == 'OPTIONS':
+            # Los navegadores envían OPTIONS como un preflight CORS.
+            # No necesitan autenticación y deben recibir un 200 OK.
+            return '', 200
+        # ************************************************************
+
+        token = None
+        if 'Authorization' in request.headers:
+            token = request.headers['Authorization'].split(' ')[1]
 
         if not token:
-            return jsonify({'success': False, 'error': 'Token de autorización ausente!'}), 401
-
+            return jsonify({'success': False, 'error': 'Token is missing!'}), 401
         try:
-            # Esperamos "Bearer <token>", así que dividimos para obtener solo el token
-            token = token.split(" ")[1]
-            # Usa current_app.config.get('SECRET_KEY') para consistencia con la clave de la app principal
-            data = jwt.decode(token, current_app.config.get('SECRET_KEY'), algorithms=["HS256"])
-            
-            # Busca al usuario en la base de datos para asegurar que es válido y activo
-            user = User.query.get(data['user_id'])
-            if not user or not user.active:
-                return jsonify({'success': False, 'error': 'Usuario no encontrado o inactivo'}), 401
-            
-            # Adjunta la información del usuario a la solicitud para que las rutas puedan acceder a ella
-            # Usamos to_dict() para evitar pasar el objeto SQLAlchemy directamente si no es necesario
-            request.current_user = user.to_dict() 
+            data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
+            current_user = User.query.filter_by(id=data['user_id']).first()
+            if not current_user:
+                return jsonify({'success': False, 'error': 'User not found'}), 401
         except jwt.ExpiredSignatureError:
-            return jsonify({'success': False, 'error': 'Token ha expirado!'}), 401
+            return jsonify({'success': False, 'error': 'Token has expired!'}), 401
         except jwt.InvalidTokenError:
-            return jsonify({'success': False, 'error': 'Token es inválido!'}), 401
+            return jsonify({'success': False, 'error': 'Token is invalid!'}), 401
         except Exception as e:
-            # Captura cualquier otra excepción inesperada durante la decodificación del token
-            current_app.logger.error(f"Error inesperado al verificar token: {e}")
-            return jsonify({'success': False, 'error': f'Error interno de autenticación: {str(e)}'}), 500
+            return jsonify({'success': False, 'error': f'Token error: {str(e)}'}), 401
 
+        request.current_user = current_user # Adjuntar el usuario al objeto request
         return f(*args, **kwargs)
-    return decorated
+    return decorated_function
+
+# Asumiendo que esta es la estructura de tu decorador require_role
+def require_role(required_role):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            # *** CAMBIO CLAVE: Permitir que las solicitudes OPTIONS pasen ***
+            if request.method == 'OPTIONS':
+                # Similar a require_token, OPTIONS no necesita validación de rol
+                return '', 200
+            # ************************************************************
+
+            # Asegúrate de que request.current_user esté disponible (proviene de require_token)
+            if not hasattr(request, 'current_user') or not request.current_user:
+                # Esto no debería ocurrir si require_token se aplica primero
+                return jsonify({'success': False, 'error': 'Authentication required for role check.'}), 401
+
+            # Si el rol del usuario no coincide y no es 'admin', deniega el acceso
+            if request.current_user.role != required_role and request.current_user.role != 'admin':
+                return jsonify({'success': False, 'error': 'Unauthorized role.'}), 403
+
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 # Decorador para requerir un rol específico
 def require_role(role):
