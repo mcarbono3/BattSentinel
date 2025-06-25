@@ -71,21 +71,25 @@ with app.app_context():
     else:
         print("El usuario 'admin' ya existe en la base de datos.")
 
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve(path):
-    static_folder_path = app.static_folder
-    if static_folder_path is None:
-        return "Static folder not configured", 404
+# === INICIO DE LA MODIFICACIÓN ===
+# Función 'serve' comentada para evitar conflictos de ruteo cuando el frontend
+# se despliega de forma independiente.
+# @app.route('/', defaults={'path': ''})
+# @app.route('/<path:path>')
+# def serve(path):
+#     static_folder_path = app.static_folder
+#     if static_folder_path is None:
+#         return "Static folder not configured", 404
 
-    if path != "" and os.path.exists(os.path.join(static_folder_path, path)):
-        return send_from_directory(static_folder_path, path)
-    else:
-        index_path = os.path.join(static_folder_path, 'index.html')
-        if os.path.exists(index_path):
-            return send_from_directory(static_folder_path, 'index.html')
-        else:
-            return "Frontend not found", 404
+#     if path != "" and os.path.exists(os.path.join(static_folder_path, path)):
+#         return send_from_directory(static_folder_path, path)
+#     else:
+#         index_path = os.path.join(static_folder_path, 'index.html')
+#         if os.path.exists(index_path):
+#             return send_from_directory(static_folder_path, 'index.html')
+#         else:
+#             return "Frontend not found", 404
+# === FIN DE LA MODIFICACIÓN ===
 
 if __name__ == '__main__':
     # Obtén el puerto del entorno (Render lo proveerá) o usa 5000 por defecto
