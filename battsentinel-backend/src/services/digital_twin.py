@@ -722,4 +722,3 @@ class DigitalTwinSimulator:
 
 # Instancia global del servicio
 digital_twin_service = DigitalTwinSimulator()
-
