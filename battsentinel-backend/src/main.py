@@ -10,13 +10,13 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 
 # Importaciones de modelos y rutas
-from models.battery import db, Battery, BatteryData
-from models.user import User
-from routes.battery import battery_bp
-from routes.ai_analysis import ai_bp
-from routes.digital_twin import twin_bp
-from routes.notifications import notifications_bp
-from services.windows_battery import windows_battery_service
+from .models.battery import db, Battery, BatteryData
+from .models.user import User
+from .routes.battery import battery_bp
+from .routes.ai_analysis import ai_bp
+from .routes.digital_twin import twin_bp
+from .routes.notifications import notifications_bp
+from .services.windows_battery import windows_battery_service
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.config['SECRET_KEY'] = 'BattSentinel#2024$SecureKey!AI'
