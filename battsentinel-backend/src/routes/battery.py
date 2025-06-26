@@ -6,9 +6,12 @@ import pandas as pd
 import numpy as np
 import traceback 
 
-from .main import db
-from .models.battery import Battery, BatteryData
-from .services.windows_battery import windows_battery_service
+# Importaciones locales
+import sys
+
+from src.main import db
+from src.models.battery import Battery, BatteryData
+from src.services.windows_battery import windows_battery_service
 
 battery_bp = Blueprint('battery', __name__)
 
