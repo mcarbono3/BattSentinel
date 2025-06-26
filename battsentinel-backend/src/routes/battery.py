@@ -11,7 +11,8 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from models.battery import db, Battery, BatteryData
+from main import db
+from models.battery import Battery, BatteryData
 from services.windows_battery import windows_battery_service
 
 battery_bp = Blueprint('battery', __name__)
