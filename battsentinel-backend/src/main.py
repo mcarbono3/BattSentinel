@@ -16,6 +16,12 @@ app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'sta
 app.config['SECRET_KEY'] = 'BattSentinel#2024$SecureKey!AI'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
+# === ¡AÑADE O VERIFICA ESTA LÍNEA AQUÍ MISMO! ===
+# La URL de origen de tu frontend es 'https://mcarbono3.github.io'
+CORS(app, origins=["https://mcarbono3.github.io"])
+# O, si quieres ser menos restrictivo y permitir cualquier origen (útil para depuración):
+# CORS(app, origins="*")
+
 # Configuración de la base de datos
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL') or 'sqlite:///batt_sentinel.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False # Desactivar seguimiento de modificaciones para reducir sobrecarga
