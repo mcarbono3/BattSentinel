@@ -7,7 +7,8 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from models.battery import db, Battery, Alert
+from main import db
+from models.battery import Battery, Alert
 from services.windows_battery import windows_battery_service
 
 notifications_bp = Blueprint('notifications', __name__)
