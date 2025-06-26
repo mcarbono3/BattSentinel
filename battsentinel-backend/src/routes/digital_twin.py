@@ -4,14 +4,9 @@ import json
 import numpy as np
 import pandas as pd
 
-# Importaciones locales
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from main import db
-from models.battery import Battery, BatteryData
-from services.digital_twin import digital_twin_service
+from .main import db
+from .models.battery import Battery, BatteryData
+from .services.digital_twin import digital_twin_service
 
 twin_bp = Blueprint('digital_twin', __name__)
 
