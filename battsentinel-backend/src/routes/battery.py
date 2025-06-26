@@ -51,10 +51,13 @@ def get_real_battery_data():
 def get_batteries():
     """Obtener lista de baterías - Sin autenticación"""
     try:
+        print("DEBUG: Intentando obtener lista de baterías...")
         with current_app.app_context():
             batteries = Battery.query.all()
+            print(f"DEBUG: Consulta de baterías exitosa. Se encontraron {len(batteries)} baterías.")
         
         if not batteries:
+            print("DEBUG: No se encontraron baterías, generando batería por defecto.")
             # Crear batería por defecto si no existe
             default_battery = {
                 'id': 1,
@@ -81,7 +84,7 @@ def get_batteries():
         error_trace = traceback.format_exc() # <--- ¡Esto es CRÍTICO para obtener el traceback!
         print(f"ERROR en GET /api/batteries: {e}") # <--- Imprime el mensaje de error
         print(f"TRACEBACK COMPLETO: \n{error_trace}") # <--- Imprime el traceback completo al log de Render
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
 @battery_bp.route('/api/battery/real-time', methods=['GET'])
 def get_real_time_data():
