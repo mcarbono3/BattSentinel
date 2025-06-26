@@ -2,14 +2,9 @@ from flask import Blueprint, request, jsonify, current_app
 from datetime import datetime, timezone
 import json
 
-# Importaciones locales
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from main import db
-from models.battery import Battery, Alert
-from services.windows_battery import windows_battery_service
+from .main import db
+from .models.battery import Battery, Alert
+from .services.windows_battery import windows_battery_service
 
 notifications_bp = Blueprint('notifications', __name__)
 
