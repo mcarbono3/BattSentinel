@@ -4,6 +4,7 @@ import json
 import os
 import pandas as pd
 import numpy as np
+import traceback 
 
 # Importaciones locales
 import sys
@@ -77,6 +78,9 @@ def get_batteries():
         })
         
     except Exception as e:
+        error_trace = traceback.format_exc() # <--- ¡Esto es CRÍTICO para obtener el traceback!
+        print(f"ERROR en GET /api/batteries: {e}") # <--- Imprime el mensaje de error
+        print(f"TRACEBACK COMPLETO: \n{error_trace}") # <--- Imprime el traceback completo al log de Render
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @battery_bp.route('/api/battery/real-time', methods=['GET'])
