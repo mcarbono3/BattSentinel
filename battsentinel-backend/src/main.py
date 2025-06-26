@@ -35,13 +35,13 @@ print(f"DEBUG (main.py): ID del objeto 'db' después de init_app: {id(db)}")
 # === PASO 2: Importar modelos y rutas DESPUÉS de que 'db' ha sido inicializada con 'app' ===
 # Esto asegura que los modelos usen la instancia de 'db' que ya está asociada con la aplicación.
 # ¡Asegúrate de que tus modelos y rutas importen 'db' desde este archivo 'main.py' ahora!
-from .models.battery import Battery, BatteryData 
-from .models.user import User 
-from .routes.battery import battery_bp
-from .routes.ai_analysis import ai_bp
-from .routes.digital_twin import twin_bp
-from .routes.notifications import notifications_bp
-from .services.windows_battery import windows_battery_service
+from src.models.battery import Battery, BatteryData 
+from src.models.user import User 
+from src.routes.battery import battery_bp
+from src.routes.ai_analysis import ai_bp
+from src.routes.digital_twin import twin_bp
+from src.routes.notifications import notifications_bp
+from src.services.windows_battery import windows_battery_service
 
 # Enable CORS for all routes - Sin restricciones
 print("DEBUG (main.py): Configurando CORS...")
