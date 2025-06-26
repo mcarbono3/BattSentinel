@@ -6,14 +6,9 @@ import pandas as pd
 import numpy as np
 import traceback 
 
-# Importaciones locales
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from main import db
-from models.battery import Battery, BatteryData
-from services.windows_battery import windows_battery_service
+from .main import db
+from .models.battery import Battery, BatteryData
+from .services.windows_battery import windows_battery_service
 
 battery_bp = Blueprint('battery', __name__)
 
