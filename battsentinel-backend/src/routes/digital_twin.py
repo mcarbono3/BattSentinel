@@ -4,9 +4,13 @@ import json
 import numpy as np
 import pandas as pd
 
-from .main import db
-from .models.battery import Battery, BatteryData
-from .services.digital_twin import digital_twin_service
+# Importaciones locales
+import sys
+import os
+
+from src.main import db
+from src.models.battery import Battery, BatteryData
+from src.services.digital_twin import digital_twin_service
 
 twin_bp = Blueprint('digital_twin', __name__)
 
