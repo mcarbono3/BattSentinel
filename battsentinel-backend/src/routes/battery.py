@@ -85,6 +85,41 @@ def get_batteries():
         print(f"TRACEBACK COMPLETO: \n{error_trace}") # <--- Imprime el traceback completo al log de Render
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
+# Ruta para obtener una batería por ID (modificada para coincidir con el formato de get_batteries)
+@battery_bp.route('/batteries/<int:battery_id>', methods=['GET', 'OPTIONS'])
+def get_battery_by_id(battery_id):
+    if request.method == 'OPTIONS':
+        return '', 204 # Manejo de pre-vuelo CORS
+
+    try:
+        battery = Battery.query.get(battery_id)
+        if not battery:
+            return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
+        
+        # Formatear la batería para que coincida con la salida de get_batteries
+        # NO se incluyen campos derivados de BatteryData o Alert aquí,
+        # solo los que están directamente en el modelo Battery y los que usas en get_batteries.
+        formatted_battery = {
+            'id': battery.id,
+            'name': battery.name,
+            'type': battery.chemistry, # Mapeado a 'chemistry' para coincidir con tu ejemplo 'Li-ion'
+            'capacity': battery.capacity_ah, # Mapeado a 'capacity_ah'
+            'voltage_nominal': battery.voltage_nominal,
+            'manufacturer': battery.manufacturer,
+            'model': battery.model, # Mapeado a 'model'
+            'serial_number': battery.serial_number,
+            'installation_date': battery.installation_date.isoformat() if battery.installation_date else None,
+            'status': battery.status
+            # No se incluyen charge_cycles, soh, soc, last_update, alerts_count, predicted_rul ni data_points
+            # ya que no están en la salida de tu get_batteries actual.
+        }
+        return jsonify({'success': True, 'data': formatted_battery})
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Error fetching battery {battery_id}: {e}")
+        print(f"TRACEBACK COMPLETO para /batteries/{battery_id}:\n{error_trace}") # Imprime traceback
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
+
 @battery_bp.route('/api/battery/real-time', methods=['GET'])
 def get_real_time_data():
     """Obtener datos en tiempo real de la batería - Sin autenticación"""
