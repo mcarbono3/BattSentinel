@@ -4,8 +4,8 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import current_app # Importar current_app
 
-# Usar la misma instancia de db que battery.py
-from .battery import db
+# === IMPORTANTE: Importa la instancia 'db' desde main.py ===
+from main import db
 
 class User(db.Model):
     """Modelo de Usuario Simplificado - Sin autenticación estricta"""
