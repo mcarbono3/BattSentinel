@@ -18,6 +18,7 @@ from .routes.digital_twin import twin_bp
 from .routes.notifications import notifications_bp
 from .services.windows_battery import windows_battery_service
 
+print("DEBUG (main.py): Iniciando la aplicación Flask...")
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.config['SECRET_KEY'] = 'BattSentinel#2024$SecureKey!AI'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
@@ -26,17 +27,27 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL') or 'sqlite:///batt_sentinel.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False # Desactivar seguimiento de modificaciones para reducir sobrecarga
 
+print(f"DEBUG (main.py): ID del objeto 'app' antes de init_app: {id(app)}")
+print(f"DEBUG (main.py): ID del objeto 'db' antes de init_app: {id(db)}")
+
 # Inicializar db con la aplicación
+print("DEBUG (main.py): Llamando a db.init_app(app)...")
 db.init_app(app)
+print("DEBUG (main.py): db.init_app(app) ha sido llamado.")
+print(f"DEBUG (main.py): ID del objeto 'db' después de init_app: {id(db)}") 
 
 # Enable CORS for all routes - Sin restricciones
+print("DEBUG (main.py): Configurando CORS...")
 CORS(app, origins="*")
+print("DEBUG (main.py): CORS configurado.")
 
 # Register blueprints - Sin auth_bp
+print("DEBUG (main.py): Registrando Blueprints...")
 app.register_blueprint(battery_bp)
 app.register_blueprint(ai_bp)
 app.register_blueprint(twin_bp)
 app.register_blueprint(notifications_bp)
+print("DEBUG (main.py): Blueprints registrados.")
 
 # Función para obtener datos reales de batería de Windows
 # Endpoint para obtener datos reales de batería
@@ -109,25 +120,29 @@ def health_check():
         'timestamp': datetime.now(timezone.utc).isoformat(),
         'version': '2.0.0-no-auth'
     })
-print("Intentando verificar/crear tablas de la base de datos...")
+
 # Ensure database tables are created
+print("Intentando verificar/crear tablas de la base de datos...")
 with app.app_context():
+    print("DEBUG (main.py): Dentro del app context. Llamando a db.create_all()...")
     db.create_all()
-    print("Tablas de la base de datos verificadas/creadas.")
+    print("DEBUG (main.py): Tablas de la base de datos verificadas/creadas.")
     
     # Crear usuario admin por defecto (opcional, ya que no hay autenticación)
+    print("DEBUG (main.py): Verificando si existe usuario 'admin'...")
     if not User.query.filter_by(username='admin').first():
         try:
+            print("DEBUG (main.py): Creando usuario 'admin'...")
             admin_user = User(username='admin', email='admin@battsentinel.com', role='admin')
             admin_user.set_password('admin123')
             db.session.add(admin_user)
             db.session.commit()
-            print("Usuario 'admin' creado en la base de datos.")
+            print("DEBUG (main.py): Usuario 'admin' creado en la base de datos.")
         except Exception as e:
             db.session.rollback()
-            print(f"Error al crear el usuario 'admin': {e}")
+            print(f"DEBUG (main.py): Error al crear el usuario 'admin': {e}")
 
-print("Proceso de inicio de base de datos completado.")
+print("DEBUG (main.py): La aplicación se está ejecutando en el bloque __main__.")
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
