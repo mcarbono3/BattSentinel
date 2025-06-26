@@ -4,12 +4,7 @@ import json
 import numpy as np
 import pandas as pd
 
-# Importaciones locales
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from main import db
+from .main import db
 from models.battery import Battery, BatteryData
 from services.windows_battery import windows_battery_service
 
