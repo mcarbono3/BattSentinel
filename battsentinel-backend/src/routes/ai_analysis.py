@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 
 from .main import db
-from models.battery import Battery, BatteryData
-from services.windows_battery import windows_battery_service
+from .models.battery import Battery, BatteryData
+from .services.windows_battery import windows_battery_service
 
 ai_bp = Blueprint('ai_analysis', __name__)
 
