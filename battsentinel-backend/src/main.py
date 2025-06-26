@@ -109,7 +109,7 @@ def health_check():
         'timestamp': datetime.now(timezone.utc).isoformat(),
         'version': '2.0.0-no-auth'
     })
-
+print("Intentando verificar/crear tablas de la base de datos...")
 # Ensure database tables are created
 with app.app_context():
     db.create_all()
@@ -127,6 +127,7 @@ with app.app_context():
             db.session.rollback()
             print(f"Error al crear el usuario 'admin': {e}")
 
+print("Proceso de inicio de base de datos completado.")
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
