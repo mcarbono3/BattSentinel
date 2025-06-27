@@ -14,6 +14,10 @@ from src.main import db
 from src.models.battery import Battery, BatteryData, ThermalImage # Asegúrate de importar ThermalImage
 from src.services.windows_battery import windows_battery_service
 
+# Si se fuera a integrar el análisis de imágenes térmicas directamente en este archivo,
+# se importaría ThermalAnalyzer aquí, por ejemplo:
+# from src.services.thermal_analyzer import ThermalAnalyzer
+
 battery_bp = Blueprint('battery', __name__)
 
 # Extensiones permitidas para carga de datos y imágenes
@@ -24,19 +28,32 @@ def allowed_file(filename, extensions):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in extensions
 
 def get_real_battery_data():
-    """Obtiene datos reales de la batería del sistema o genera simulados como fallback."""
+    """Obtiene datos reales de la batería del sistema o genera simulados como fallback.
+    Esta función mejora la robustez al asegurar que los datos de la batería de Windows
+    se intenten obtener primero y, en caso de fallo, se recurra a datos simulados
+    con logging claro de la situación.
+    """
     try:
+        current_app.logger.debug("Intentando obtener datos reales de la batería del sistema...")
+        # Llama al servicio específico de Windows para obtener la información de la batería
         battery_info = windows_battery_service.get_battery_info()
+
         if battery_info and battery_info.get('success'):
             current_app.logger.info("Datos de batería REALES obtenidos exitosamente del sistema Windows.")
             return battery_info['data']
         else:
-            current_app.logger.warning(f"No se pudieron obtener datos reales (success=False). Mensaje: {battery_info.get('error', 'Desconocido')}. Usando datos simulados.")
+            # Si no hay éxito, loguear el error reportado por el servicio de Windows
+            error_message = battery_info.get('error', 'Error desconocido al obtener datos reales.')
+            current_app.logger.warning(f"No se pudieron obtener datos reales de la batería: {error_message}. Usando datos simulados.")
+            current_app.logger.debug(f"Detalle del fallback: {battery_info.get('traceback', 'No traceback provided.')}")
+
     except Exception as e:
+        # Captura cualquier excepción inesperada durante el proceso de obtención de datos reales
         error_trace = traceback.format_exc()
-        current_app.logger.warning(f"Error obteniendo datos reales del sistema: {e}. Usando datos simulados.")
+        current_app.logger.error(f"Excepción crítica al intentar obtener datos reales del sistema: {e}\n{error_trace}")
+        current_app.logger.info("Recurriendo a la generación de datos de batería SIMULADOS debido a una excepción.")
         
-    # Fallback a datos simulados
+    # Fallback a datos simulados si la obtención de datos reales falla o hay una excepción
     current_app.logger.info("Generando y usando datos de batería SIMULADOS.")
     return {
         'voltage': 12.6 + np.random.normal(0, 0.1),
@@ -232,7 +249,7 @@ def update_battery(battery_id):
             except ValueError:
                 return jsonify({'success': False, 'error': 'Formato de fecha de instalación inválido. Use ISO 8601.'}), 400
         elif 'installation_date' in data and data['installation_date'] is None:
-             battery.installation_date = None # Permitir establecer la fecha a None
+            battery.installation_date = None # Permitir establecer la fecha a None
         battery.location = data.get('location', battery.location)
         battery.status = data.get('status', battery.status)
         battery.updated_at = datetime.utcnow() # Actualizar la marca de tiempo de actualización
@@ -661,5 +678,5 @@ def view_thermal_image(battery_id, image_id):
         return send_file(io.BytesIO(image.image_data), mimetype=image.mimetype)
     except Exception as e:
         error_trace = traceback.format_exc()
-        current_app.logger.error(f"Error al servir la imagen térmica {image_id} para la batería {battery_id}: {e}\n{error_trace}")
+        current_app.logger.error(f"Error al servir imagen térmica {image_id} para batería {battery_id}: {e}\n{error_trace}")
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
