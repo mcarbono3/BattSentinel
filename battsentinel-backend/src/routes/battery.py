@@ -28,12 +28,16 @@ def get_real_battery_data():
     try:
         battery_info = windows_battery_service.get_battery_info()
         if battery_info and battery_info.get('success'):
+            current_app.logger.info("Datos de batería REALES obtenidos exitosamente del sistema Windows.")
             return battery_info['data']
+        else:
+            current_app.logger.warning(f"No se pudieron obtener datos reales (success=False). Mensaje: {battery_info.get('error', 'Desconocido')}. Usando datos simulados.")
     except Exception as e:
+        error_trace = traceback.format_exc()
         current_app.logger.warning(f"Error obteniendo datos reales del sistema: {e}. Usando datos simulados.")
-        # No imprimir traceback aquí, ya que es un fallo esperado en ciertos entornos.
-
+        
     # Fallback a datos simulados
+    current_app.logger.info("Generando y usando datos de batería SIMULADOS.")
     return {
         'voltage': 12.6 + np.random.normal(0, 0.1),
         'current': 2.5 + np.random.normal(0, 0.3),
