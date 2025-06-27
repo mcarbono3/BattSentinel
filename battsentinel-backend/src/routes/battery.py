@@ -1,10 +1,10 @@
 from flask import Blueprint, request, jsonify, current_app, send_file
 from datetime import datetime, timezone
-import os
+import os # Necesario para os.path.dirname si se mantiene sys.path.append
 import pandas as pd
 import numpy as np
 import traceback
-import io
+import io # Para manejar datos en memoria para archivos
 
 # Importaciones locales
 import sys
@@ -105,7 +105,7 @@ def get_batteries():
                         name='Batería Principal',
                         model='BS-100',
                         manufacturer='BattSentinel',
-                        serial_number='BS001',
+                        serial_number='BS001', # Asegúrate de que este sea único o genera uno dinámicamente
                         capacity_ah=100.0,
                         voltage_nominal=12.0,
                         chemistry='Li-ion',
@@ -114,20 +114,8 @@ def get_batteries():
                         status='active'
                     )
                     db.session.add(default_battery)
-                    db.session.commit() # Commit para obtener el ID de default_battery
-                    current_app.logger.info("Batería por defecto creada exitosamente.")
-
-                    # Generar y añadir datos de ejemplo para esta nueva batería
-                    sample_data_points = generate_sample_battery_data(default_battery.id, count=50) # Generar 50 puntos
-                    for dp_dict in sample_data_points:
-                        # Convertir timestamp string de vuelta a objeto datetime
-                        dp_dict['timestamp'] = datetime.fromisoformat(dp_dict['timestamp'])
-                        # Crear objeto BatteryData, excluyendo 'id' y 'battery_id' ya que son auto-generados o pasados
-                        dp = BatteryData(battery_id=default_battery.id, **{k: v for k, v in dp_dict.items() if k not in ['id', 'battery_id']})
-                        db.session.add(dp)
                     db.session.commit()
-                    current_app.logger.info(f"Datos de ejemplo creados para la batería por defecto (ID: {default_battery.id}).")
-
+                    current_app.logger.info("Batería por defecto creada exitosamente.")
                 else:
                     current_app.logger.info("Batería por defecto (ID 1) ya existe, no se crea una nueva.")
                 # Volver a consultar para incluir la batería por defecto si fue creada
@@ -135,7 +123,7 @@ def get_batteries():
             except Exception as e_db:
                 db.session.rollback()
                 error_trace_db = traceback.format_exc()
-                current_app.logger.error(f"Error al crear batería por defecto o sus datos: {e_db}\n{error_trace_db}")
+                current_app.logger.error(f"Error al crear batería por defecto: {e_db}\n{error_trace_db}")
                 return jsonify({'success': False, 'error': f'Error al inicializar baterías: {str(e_db)}'}), 500
 
         batteries_data = [battery.to_dict() for battery in batteries]
@@ -407,7 +395,6 @@ def get_battery_summary(battery_id):
             'latest_soh': df['soh'].iloc[0] if 'soh' in df.columns else None,
             'latest_cycles': df['cycles'].iloc[0] if 'cycles' in df.columns else None,
             'avg_voltage': df['voltage'].mean() if 'voltage' in df.columns else None,
-            'avg_current': df['current'].mean() if 'current' in df.columns else None, # Asegurarse de tener promedio de corriente
             'avg_temperature': df['temperature'].mean() if 'temperature' in df.columns else None,
             'min_soc': df['soc'].min() if 'soc' in df.columns else None,
             'max_soc': df['soc'].max() if 'soc' in df.columns else None,
@@ -483,6 +470,7 @@ def upload_battery_data(battery_id):
         for col in expected_columns:
             if col not in df.columns:
                 current_app.logger.warning(f"Columna '{col}' no encontrada en el archivo. Se intentará continuar sin ella.")
+                # Si una columna esperada no existe, asegúrate de que el get() en la creación de BatteryData la maneje con None.
 
         records_added = 0
         for index, row in df.iterrows():
@@ -492,12 +480,13 @@ def upload_battery_data(battery_id):
                 timestamp = None
                 if pd.notna(timestamp_raw):
                     try:
+                        # Intentar con varios formatos, o especificar uno
                         timestamp = pd.to_datetime(timestamp_raw, errors='coerce', utc=True).to_pydatetime()
-                        if timestamp and not timestamp.tzinfo:
+                        if timestamp and not timestamp.tzinfo: # Si no tiene tzinfo, asume UTC
                             timestamp = timestamp.replace(tzinfo=timezone.utc)
                     except Exception as e_ts:
                         current_app.logger.warning(f"Fila {index}: Timestamp '{timestamp_raw}' inválido o no convertible. Error: {e_ts}. Saltando fila.")
-                        continue
+                        continue # Salta la fila si el timestamp no es válido
 
                 if timestamp is None:
                     current_app.logger.warning(f"Fila {index}: Timestamp es None después de procesamiento. Saltando fila.")
@@ -564,8 +553,9 @@ def export_battery_data(battery_id):
         elif format_type == 'csv':
             df = pd.DataFrame(data_list)
             if not df.empty:
+                # Convertir objetos datetime a strings para CSV
                 for col in df.select_dtypes(include=['datetime64[ns, UTC]']).columns:
-                    df[col] = df[col].dt.isoformat()
+                    df[col] = df[col].dt.isoformat() # O un formato de fecha específico si lo prefieres
 
                 csv_buffer = io.StringIO()
                 df.to_csv(csv_buffer, index=False)
@@ -643,6 +633,7 @@ def get_thermal_images(battery_id):
                 'filename': img.filename,
                 'mimetype': img.mimetype,
                 'uploaded_at': img.uploaded_at.isoformat(),
+                # URL para obtener la imagen real.
                 'url': f'/api/batteries/{battery_id}/thermal-images/{img.id}/view'
             })
         current_app.logger.debug(f"Obtenidas {len(image_list)} imágenes térmicas para batería {battery_id}.")
@@ -657,6 +648,7 @@ def get_thermal_images(battery_id):
 def view_thermal_image(battery_id, image_id):
     """Sirve los datos binarios de una imagen térmica específica."""
     try:
+        # Asegúrate de que la imagen pertenece a la batería correcta
         image = ThermalImage.query.filter_by(battery_id=battery_id, id=image_id).first()
         if not image:
             return jsonify({'success': False, 'error': 'Imagen no encontrada para esta batería o ID'}), 404
