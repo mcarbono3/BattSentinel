@@ -5,22 +5,25 @@ import platform
 import subprocess
 from datetime import datetime, timezone
 
-from flask import Flask, send_from_directory, jsonify, current_app
+from flask import Flask, send_from_directory, jsonify, current_app, request # Asegúrate de que 'request' esté importado
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 
-# === IMPORTANTE: db se creará e inicializará AQUÍ, NO en models/battery.py ===
+# === IMPORTANTE: db se creará e inicializará AQUÍ ===
 
 print("DEBUG (main.py): Iniciando la aplicación Flask...")
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.config['SECRET_KEY'] = 'BattSentinel#2024$SecureKey!AI'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
-# === ¡AÑADE O VERIFICA ESTA LÍNEA AQUÍ MISMO! ===
-# La URL de origen de tu frontend es 'https://mcarbono3.github.io'
-# CORS(app, origins=["https://mcarbono3.github.io"])
-# O, si quieres ser menos restrictivo y permitir cualquier origen (útil para depuración):
-CORS(app, origins="*")
+# === CONFIGURACIÓN DE CORS ===
+# **IMPORTANTE:** Usamos SOLO esta configuración para manejar CORS.
+# Permite CORS para tu frontend específico en todas las rutas bajo /api/
+CORS(app, resources={r"/api/*": {"origins": "https://mcarbono3.github.io"}})
+# Si en algún momento necesitas permitir CUALQUIER origen para depuración (menos seguro en producción):
+# CORS(app, origins="*")
+# Si solo necesitas habilitar CORS globalmente sin restricciones específicas de ruta:
+# CORS(app)
 
 # Configuración de la base de datos
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL') or 'sqlite:///batt_sentinel.db'
@@ -41,28 +44,23 @@ print(f"DEBUG (main.py): ID del objeto 'db' después de init_app: {id(db)}")
 # === PASO 2: Importar modelos y rutas DESPUÉS de que 'db' ha sido inicializada con 'app' ===
 # Esto asegura que los modelos usen la instancia de 'db' que ya está asociada con la aplicación.
 # ¡Asegúrate de que tus modelos y rutas importen 'db' desde este archivo 'main.py' ahora!
-from src.models.battery import Battery, BatteryData 
-from src.models.user import User 
+from src.models.battery import Battery, BatteryData
+from src.models.user import User
 from src.routes.battery import battery_bp
 from src.routes.ai_analysis import ai_bp
 from src.routes.digital_twin import twin_bp
 from src.routes.notifications import notifications_bp
 from src.services.windows_battery import windows_battery_service
 
-# Enable CORS for all routes - Sin restricciones
-print("DEBUG (main.py): Configurando CORS...")
-CORS(app, origins="*")
-print("DEBUG (main.py): CORS configurado.")
-
-# Register blueprints - Sin auth_bp
+# Register blueprints - ¡IMPORTANTE: Añade url_prefix='/api' a los blueprints que pertenecen a la API!
 print("DEBUG (main.py): Registrando Blueprints...")
-app.register_blueprint(battery_bp)
-app.register_blueprint(ai_bp)
-app.register_blueprint(twin_bp)
-app.register_blueprint(notifications_bp)
+app.register_blueprint(battery_bp, url_prefix='/api') # <-- CAMBIO APLICADO AQUÍ
+app.register_blueprint(ai_bp, url_prefix='/api')       # <-- CAMBIO APLICADO AQUÍ
+app.register_blueprint(twin_bp, url_prefix='/api')     # <-- CAMBIO APLICADO AQUÍ
+app.register_blueprint(notifications_bp, url_prefix='/api') # <-- CAMBIO APLICADO AQUÍ
 print("DEBUG (main.py): Blueprints registrados.")
 
-# Función para obtener datos reales del sistema
+# Función para obtener datos reales del sistema (ya usa /api/ en su ruta, se mantiene)
 @app.route('/api/real-time-data', methods=['GET'])
 def get_real_time_data():
     try:
@@ -71,7 +69,7 @@ def get_real_time_data():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# Endpoint de información del sistema
+# Endpoint de información del sistema (ya usa /api/ en su ruta, se mantiene)
 @app.route('/api/system-info', methods=['GET'])
 def system_info():
     try:
@@ -95,7 +93,7 @@ def system_info():
             'error': str(e)
         }), 500
 
-# Endpoint de salud del sistema
+# Endpoint de salud del sistema (ya usa /api/ en su ruta, se mantiene)
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Endpoint de verificación de salud del sistema"""
@@ -119,8 +117,6 @@ with app.app_context():
         try:
             print("DEBUG (main.py): Creando usuario 'admin'...")
             # IMPORTANTE: Asegúrate de que tu modelo User no requiera 'password_hash' si no lo estableces aquí
-            # Si lo requiere, puedes usar una contraseña por defecto o generar una hash:
-            # admin_user = User(username='admin', email='admin@battsentinel.com', role='admin', password_hash=generate_password_hash('admin123'))
             admin_user = User(username='admin', email='admin@battsentinel.com', role='admin')
             db.session.add(admin_user)
             db.session.commit()
