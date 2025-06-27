@@ -5,7 +5,7 @@ import platform
 import subprocess
 from datetime import datetime, timezone
 
-from flask import Flask, send_from_directory, jsonify, current_app, request # Asegúrate de que 'request' esté importado
+from flask import Flask, send_from_directory, jsonify, current_app, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 
@@ -14,7 +14,7 @@ from flask_sqlalchemy import SQLAlchemy
 print("DEBUG (main.py): Iniciando la aplicación Flask...")
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.config['SECRET_KEY'] = 'BattSentinel#2024$SecureKey!AI'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16MB max file size
 
 # === CONFIGURACIÓN DE CORS ===
 # **IMPORTANTE:** Usamos SOLO esta configuración para manejar CORS.
@@ -44,7 +44,7 @@ print(f"DEBUG (main.py): ID del objeto 'db' después de init_app: {id(db)}")
 # === PASO 2: Importar modelos y rutas DESPUÉS de que 'db' ha sido inicializada con 'app' ===
 # Esto asegura que los modelos usen la instancia de 'db' que ya está asociada con la aplicación.
 # ¡Asegúrate de que tus modelos y rutas importen 'db' desde este archivo 'main.py' ahora!
-from src.models.battery import Battery, BatteryData
+from src.models.battery import Battery, BatteryData, Alert, AnalysisResult, ThermalImage, MaintenanceRecord
 from src.models.user import User
 from src.routes.battery import battery_bp
 from src.routes.ai_analysis import ai_bp
@@ -54,10 +54,10 @@ from src.services.windows_battery import windows_battery_service
 
 # Register blueprints - ¡IMPORTANTE: Añade url_prefix='/api' a los blueprints que pertenecen a la API!
 print("DEBUG (main.py): Registrando Blueprints...")
-app.register_blueprint(battery_bp, url_prefix='/api') # <-- CAMBIO APLICADO AQUÍ
-app.register_blueprint(ai_bp, url_prefix='/api')       # <-- CAMBIO APLICADO AQUÍ
-app.register_blueprint(twin_bp, url_prefix='/api')     # <-- CAMBIO APLICADO AQUÍ
-app.register_blueprint(notifications_bp, url_prefix='/api') # <-- CAMBIO APLICADO AQUÍ
+app.register_blueprint(battery_bp, url_prefix='/api')
+app.register_blueprint(ai_bp, url_prefix='/api')
+app.register_blueprint(twin_bp, url_prefix='/api')
+app.register_blueprint(notifications_bp, url_prefix='/api')
 print("DEBUG (main.py): Blueprints registrados.")
 
 # Función para obtener datos reales del sistema (ya usa /api/ en su ruta, se mantiene)
