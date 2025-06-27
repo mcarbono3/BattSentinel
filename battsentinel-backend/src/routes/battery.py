@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app, send_file
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import os
 import pandas as pd
 import numpy as np
@@ -32,98 +32,32 @@ def get_real_battery_data():
         battery_info = windows_battery_service.get_battery_info()
 
         if battery_info and battery_info.get('success'):
-            current_app.logger.info("Datos de batería REALES obtenidos del sistema.")
-            return battery_info.get('data')
+            current_app.logger.info("Datos de batería REALES obtenidos ...")
+            return jsonify({'success': True, 'data': battery_info.get('data')})
         else:
             current_app.logger.warning("No se pudieron obtener datos reales de la batería. Generando datos simulados.")
-            return generate_simulated_battery_data()
+            # Generar datos simulados si no se pueden obtener datos reales
+            simulated_data = {
+                'voltage': round(np.random.uniform(3.5, 4.2), 2),
+                'current': round(np.random.uniform(0.1, 2.0), 2),
+                'temperature': round(np.random.uniform(20.0, 35.0), 2),
+                'soc': round(np.random.uniform(10, 100)),
+                'soh': round(np.random.uniform(70, 100)),
+                'cycles': int(np.random.randint(50, 500)),
+                'status': np.random.choice(['optimal', 'warning', 'critical']),
+                'last_update': datetime.now(timezone.utc).isoformat()
+            }
+            return jsonify({'success': True, 'data': simulated_data})
     except Exception as e:
-        current_app.logger.error(f"Error al obtener datos reales de la batería: {e}")
-        return generate_simulated_battery_data()
-
-def generate_simulated_battery_data():
-    """Genera datos de batería simulados para propósitos de demostración."""
-    now = datetime.now(timezone.utc)
-    # Valores aleatorios dentro de un rango razonable para simulación
-    voltage = round(np.random.uniform(11.8, 12.5), 2)
-    current = round(np.random.uniform(0.5, 5.0), 2)
-    temperature = round(np.random.uniform(20.0, 35.0), 2)
-    soc = round(np.random.uniform(20, 100)) # State of Charge
-    soh = round(np.random.uniform(70, 100)) # State of Health
-    cycles = np.random.randint(50, 500)
-
-    return {
-        'timestamp': now.isoformat(),
-        'voltage': voltage,
-        'current': current,
-        'temperature': temperature,
-        'soc': soc,
-        'soh': soh,
-        'cycles': cycles
-    }
-
-def generate_sample_battery_data(battery_id, count=100):
-    """Genera una lista de datos de batería simulados para una batería específica."""
-    sample_data = []
-    # Genera datos para los últimos 'count' días
-    for i in range(count):
-        timestamp = datetime.now(timezone.utc) - timedelta(days=count - 1 - i)
-        voltage = round(np.random.uniform(11.8, 12.5), 2)
-        current = round(np.random.uniform(0.5, 5.0), 2)
-        temperature = round(np.random.uniform(20.0, 35.0), 2)
-        soc = round(np.random.uniform(50, 95))
-        soh = round(np.random.uniform(80, 98))
-        cycles = np.random.randint(100, 500)
-
-        sample_data.append({
-            'battery_id': battery_id,
-            'timestamp': timestamp.isoformat(),
-            'voltage': voltage,
-            'current': current,
-            'temperature': temperature,
-            'soc': soc,
-            'soh': soh,
-            'cycles': cycles,
-            'internal_resistance': round(np.random.uniform(0.01, 0.1), 3),
-            'power': round(voltage * current, 2),
-            'efficiency': round(np.random.uniform(85, 99), 2),
-            'charge_rate': round(np.random.uniform(0, 1), 2),
-            'discharge_rate': round(np.random.uniform(0, 1), 2),
-            'ambient_temperature': round(np.random.uniform(15, 30), 2),
-            'humidity': round(np.random.uniform(30, 80), 2),
-        })
-    return sample_data
-
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Error al obtener datos de batería: {e}\n{error_trace}")
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
 @battery_bp.route('/batteries', methods=['GET'])
 def get_batteries():
-    """Obtener una lista de todas las baterías."""
+    """Obtener todas las baterías."""
     try:
         batteries = Battery.query.all()
-        if not batteries:
-            current_app.logger.info("No se encontraron baterías. Creando una batería principal por defecto.")
-            try:
-                # Crear una batería por defecto si no hay ninguna
-                default_battery = Battery(
-                    name='Batería Principal #001',
-                    model='Li-ion 18650',
-                    manufacturer='Default Mfg',
-                    serial_number='DEFAULT-001',
-                    capacity_ah=200,
-                    voltage_nominal=12,
-                    chemistry='LiFePO4',
-                    installation_date=datetime.now(timezone.utc)
-                )
-                db.session.add(default_battery)
-                db.session.commit()
-                current_app.logger.info("Batería principal por defecto creada con éxito.")
-                batteries = [default_battery] # Usar la batería recién creada
-            except Exception as create_e:
-                db.session.rollback()
-                error_trace = traceback.format_exc()
-                current_app.logger.error(f"Error al crear batería por defecto: {create_e}\n{error_trace}")
-                return jsonify({'success': False, 'error': 'Error al inicializar baterías', 'traceback': error_trace}), 500
-
         batteries_list = [battery.to_dict() for battery in batteries]
         current_app.logger.debug(f"Obtenidas {len(batteries_list)} baterías.")
         return jsonify({'success': True, 'data': batteries_list})
@@ -132,323 +66,406 @@ def get_batteries():
         current_app.logger.error(f"Error al obtener baterías: {e}\n{error_trace}")
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
-
 @battery_bp.route('/batteries', methods=['POST'])
 def create_battery():
     """Crear una nueva batería."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'Datos de entrada no proporcionados'}), 400
+
+    required_fields = ['name', 'type', 'voltage', 'capacity', 'manufacturing_date']
+    for field in required_fields:
+        if field not in data:
+            return jsonify({'success': False, 'error': f'Campo requerido faltante: {field}'}), 400
+
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'No se proporcionaron datos JSON en la solicitud'}), 400
-
-        required_fields = ['name', 'model', 'manufacturer', 'capacity_ah', 'voltage_nominal', 'chemistry']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'success': False, 'error': f'Falta el campo requerido: {field}'}), 400
-
-        # Validación y conversión de la fecha de instalación
-        installation_date = None
-        if 'installation_date' in data and data['installation_date']:
-            try:
-                # Añadir 'Z' a la cadena si falta y la zona horaria no está presente para ISO 8601
-                date_str = data['installation_date']
-                if not (date_str.endswith('Z') or '+' in date_str or '-' in date_str[len(date_str)-6:]):
-                    date_str += 'Z'
-                installation_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-            except ValueError:
-                return jsonify({'success': False, 'error': 'Formato de fecha de instalación inválido. Use ISO 8601.'}), 400
-        else:
-            installation_date = datetime.now(timezone.utc) # Por defecto a la fecha actual si no se proporciona
+        # Convertir la fecha de fabricación a objeto datetime
+        manufacturing_date = datetime.fromisoformat(data['manufacturing_date'].replace('Z', '+00:00')) if isinstance(data['manufacturing_date'], str) else data['manufacturing_date']
 
         new_battery = Battery(
             name=data['name'],
-            model=data['model'],
-            manufacturer=data['manufacturer'],
-            serial_number=data.get('serial_number', None), # serial_number es opcional al crear, pero debe ser único
-            capacity_ah=data['capacity_ah'],
-            voltage_nominal=data['voltage_nominal'],
-            chemistry=data['chemistry'],
-            installation_date=installation_date,
-            manufacturing_date=data.get('manufacturing_date', None),
-            last_maintenance_date=data.get('last_maintenance_date', None),
-            status=data.get('status', 'active'), # Estado por defecto
-            location=data.get('location', None)
+            type=data['type'],
+            voltage=data['voltage'],
+            capacity=data['capacity'],
+            manufacturing_date=manufacturing_date,
+            last_calibration_date=datetime.fromisoformat(data['last_calibration_date'].replace('Z', '+00:00')) if data.get('last_calibration_date') else None,
+            installation_date=datetime.fromisoformat(data['installation_date'].replace('Z', '+00:00')) if data.get('installation_date') else None,
+            threshold_voltage_min=data.get('threshold_voltage_min'),
+            threshold_voltage_max=data.get('threshold_voltage_max'),
+            threshold_temp_min=data.get('threshold_temp_min'),
+            threshold_temp_max=data.get('threshold_temp_max'),
+            threshold_soc_min=data.get('threshold_soc_min'),
+            threshold_soh_min=data.get('threshold_soh_min'),
+            critical_alerts_enabled=data.get('critical_alerts_enabled', True)
         )
-
         db.session.add(new_battery)
         db.session.commit()
-        current_app.logger.info(f"Batería '{new_battery.name}' creada con éxito.")
+        current_app.logger.info(f"Batería '{new_battery.name}' creada con ID: {new_battery.id}.")
         return jsonify({'success': True, 'data': new_battery.to_dict()}), 201
+    except ValueError as e:
+        return jsonify({'success': False, 'error': f'Error en el formato de fecha: {e}'}), 400
     except Exception as e:
-        db.session.rollback()
         error_trace = traceback.format_exc()
         current_app.logger.error(f"Error al crear batería: {e}\n{error_trace}")
+        db.session.rollback()
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
-
-@battery_bp.route('/batteries/<int:battery_id>', methods=['GET', 'OPTIONS'])
-def get_battery(battery_id):
-    """Obtener los detalles de una batería específica."""
-    if request.method == 'OPTIONS':
-        return '', 200 # Manejar la solicitud OPTIONS/preflight
-
+@battery_bp.route('/batteries/<int:battery_id>', methods=['GET'])
+def get_battery_by_id(battery_id):
+    """Obtener una batería por su ID."""
     try:
         battery = Battery.query.get(battery_id)
         if not battery:
             return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
-        
-        current_app.logger.debug(f"Detalles de batería {battery_id} obtenidos con éxito.")
+        current_app.logger.debug(f"Obtenida batería con ID: {battery_id}.")
         return jsonify({'success': True, 'data': battery.to_dict()})
     except Exception as e:
         error_trace = traceback.format_exc()
-        current_app.logger.error(f"Error al obtener batería {battery_id}: {e}\n{error_trace}")
+        current_app.logger.error(f"Error al obtener batería por ID {battery_id}: {e}\n{error_trace}")
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
-
 
 @battery_bp.route('/batteries/<int:battery_id>', methods=['PUT'])
 def update_battery(battery_id):
     """Actualizar una batería existente."""
-    try:
-        battery = Battery.query.get(battery_id)
-        if not battery:
-            return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
-
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'No se proporcionaron datos JSON en la solicitud'}), 400
-
-        # Actualizar campos
-        for key, value in data.items():
-            if hasattr(battery, key):
-                if key in ['installation_date', 'manufacturing_date', 'last_maintenance_date'] and value:
-                    try:
-                        # Convertir la fecha a formato datetime
-                        date_str = value
-                        if not (date_str.endswith('Z') or '+' in date_str or '-' in date_str[len(date_str)-6:]):
-                            date_str += 'Z'
-                        setattr(battery, key, datetime.fromisoformat(date_str.replace('Z', '+00:00')))
-                    except ValueError:
-                        return jsonify({'success': False, 'error': f'Formato de fecha inválido para {key}. Use ISO 8601.'}), 400
-                else:
-                    setattr(battery, key, value)
-
-        db.session.commit()
-        current_app.logger.info(f"Batería '{battery_id}' actualizada con éxito.")
-        return jsonify({'success': True, 'data': battery.to_dict()})
-    except Exception as e:
-        db.session.rollback()
-        error_trace = traceback.format_exc()
-        current_app.logger.error(f"Error al actualizar batería {battery_id}: {e}\n{error_trace}")
-        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
-
-
-@battery_bp.route('/batteries/<int:battery_id>', methods=['DELETE'])
-def delete_battery(battery_id):
-    """Eliminar una batería."""
-    try:
-        battery = Battery.query.get(battery_id)
-        if not battery:
-            return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
-
-        db.session.delete(battery)
-        db.session.commit()
-        current_app.logger.info(f"Batería '{battery_id}' eliminada con éxito.")
-        return jsonify({'success': True, 'message': 'Batería eliminada con éxito'}), 200
-    except Exception as e:
-        db.session.rollback()
-        error_trace = traceback.format_exc()
-        current_app.logger.error(f"Error al eliminar batería {battery_id}: {e}\n{error_trace}")
-        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
-
-
-@battery_bp.route('/battery/real-time', methods=['GET'])
-def get_battery_real_time_data():
-    """Obtener datos de batería en tiempo real (reales o simulados)."""
-    try:
-        data = get_real_battery_data()
-        current_app.logger.debug("Datos de batería en tiempo real obtenidos.")
-        return jsonify({'success': True, 'data': data, 'timestamp': datetime.now(timezone.utc).isoformat()})
-    except Exception as e:
-        error_trace = traceback.format_exc()
-        current_app.logger.error(f"Error al obtener datos de batería en tiempo real: {e}\n{error_trace}")
-        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
-
-
-@battery_bp.route('/batteries/<int:battery_id>/data', methods=['POST', 'GET'])
-def handle_battery_data(battery_id):
-    """
-    Gestiona la carga de nuevos datos de batería (POST)
-    y la obtención de datos históricos para gráficos (GET) para una batería específica.
-    """
     battery = Battery.query.get(battery_id)
     if not battery:
         return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
 
-    if request.method == 'POST':
-        current_app.logger.debug(f"Recibida solicitud POST para datos de batería {battery_id}.")
-        try:
-            data = request.json
-            if not data:
-                return jsonify({'success': False, 'error': 'No se proporcionaron datos JSON'}), 400
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'Datos de entrada no proporcionados'}), 400
 
-            # Lógica para obtener datos reales si se solicita
-            if data.get('get_real_data', False):
-                real_data = windows_battery_service.get_battery_info()
-                if real_data and real_data.get('success'):
-                    data.update(real_data['data'])
-                else:
-                    current_app.logger.warning("No se pudieron obtener datos reales, utilizando simulados para POST.")
-                    simulated_data = generate_simulated_battery_data()
-                    data.update(simulated_data)
-            
-            timestamp = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00')) if 'timestamp' in data else datetime.now(timezone.utc)
-
-            new_data_point = BatteryData(
-                battery_id=battery_id,
-                timestamp=timestamp,
-                voltage=data.get('voltage'),
-                current=data.get('current'),
-                temperature=data.get('temperature'),
-                soc=data.get('soc'),
-                soh=data.get('soh'),
-                cycles=data.get('cycles'),
-                internal_resistance=data.get('internal_resistance'),
-                power=data.get('power'),
-                efficiency=data.get('efficiency'),
-                charge_rate=data.get('charge_rate'),
-                discharge_rate=data.get('discharge_rate'),
-                ambient_temperature=data.get('ambient_temperature'),
-                humidity=data.get('humidity')
-            )
-            db.session.add(new_data_point)
-            db.session.commit()
-            current_app.logger.info(f"Dato añadido a batería {battery_id} en {new_data_point.timestamp}")
-            return jsonify({'success': True, 'data': new_data_point.to_dict()}), 201
-        except Exception as e:
-            db.session.rollback()
-            error_trace = traceback.format_exc()
-            current_app.logger.error(f"Error al añadir datos a la batería {battery_id}: {e}\n{error_trace}")
-            return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
-
-    elif request.method == 'GET':
-        current_app.logger.debug(f"Recibida solicitud GET para datos históricos de batería {battery_id}.")
-        time_range = request.args.get('time_range', 'all_time') # 'last_24_hours', 'last_7_days', 'last_30_days', 'all_time'
-        interval = request.args.get('interval', 'hourly') # 'hourly', 'daily', 'monthly'
-
-        query = BatteryData.query.filter_by(battery_id=battery_id)
-
-        # Filtrar por rango de tiempo
-        now_utc = datetime.now(timezone.utc)
-        if time_range == 'last_24_hours':
-            query = query.filter(BatteryData.timestamp >= now_utc - timedelta(hours=24))
-        elif time_range == 'last_7_days':
-            query = query.filter(BatteryData.timestamp >= now_utc - timedelta(days=7))
-        elif time_range == 'last_30_days':
-            query = query.filter(BatteryData.timestamp >= now_utc - timedelta(days=30))
-        # 'all_time' no necesita filtro adicional de tiempo
-
-        historical_data = query.order_by(BatteryData.timestamp.asc()).all()
-        
-        # Si no hay datos en la base de datos, generar algunos datos de ejemplo.
-        if not historical_data:
-            current_app.logger.info(f"No se encontraron datos históricos para la batería {battery_id}. Generando datos de ejemplo.")
-            sample_data_list = generate_sample_battery_data(battery_id, count=100)
-            return jsonify({'success': True, 'data': sample_data_list, 'battery_id': battery_id})
-
-        data_list = [data.to_dict() for data in historical_data]
-
-        current_app.logger.debug(f"Obtenidos {len(data_list)} puntos de datos históricos para batería {battery_id} con rango '{time_range}' e intervalo '{interval}'.")
-        return jsonify({'success': True, 'data': data_list, 'battery_id': battery_id})
-    
-    return jsonify({'success': False, 'error': 'Método no permitido para esta ruta.'}), 405
-
-
-@battery_bp.route('/battery/upload_data', methods=['POST'])
-def upload_battery_data():
-    """Cargar datos de batería desde un archivo CSV/Excel."""
     try:
-        if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'No se encontró el archivo en la solicitud'}), 400
+        for key, value in data.items():
+            if hasattr(battery, key):
+                # Manejar campos de fecha que pueden venir como strings ISO
+                if key in ['manufacturing_date', 'last_calibration_date', 'installation_date'] and isinstance(value, str):
+                    setattr(battery, key, datetime.fromisoformat(value.replace('Z', '+00:00')))
+                else:
+                    setattr(battery, key, value)
+        db.session.commit()
+        current_app.logger.info(f"Batería con ID: {battery_id} actualizada.")
+        return jsonify({'success': True, 'data': battery.to_dict()})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': f'Error en el formato de fecha: {e}'}), 400
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Error al actualizar batería con ID {battery_id}: {e}\n{error_trace}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
-        file = request.files['file']
-        battery_id = request.form.get('battery_id')
+@battery_bp.route('/batteries/<int:battery_id>', methods=['DELETE'])
+def delete_battery(battery_id):
+    """Eliminar una batería."""
+    battery = Battery.query.get(battery_id)
+    if not battery:
+        return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
 
-        if file.filename == '':
-            return jsonify({'success': False, 'error': 'Nombre de archivo vacío'}), 400
+    try:
+        # Eliminar datos relacionados (opcional, dependiendo de la relación en el modelo)
+        BatteryData.query.filter_by(battery_id=battery_id).delete()
+        Alert.query.filter_by(battery_id=battery_id).delete()
+        AnalysisResult.query.filter_by(battery_id=battery_id).delete()
+        ThermalImage.query.filter_by(battery_id=battery_id).delete()
+        MaintenanceRecord.query.filter_by(battery_id=battery_id).delete()
 
-        if not battery_id:
-            return jsonify({'success': False, 'error': 'Se requiere el ID de la batería para cargar datos'}), 400
+        db.session.delete(battery)
+        db.session.commit()
+        current_app.logger.info(f"Batería con ID: {battery_id} eliminada.")
+        return jsonify({'success': True, 'message': 'Batería eliminada correctamente'})
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Error al eliminar batería con ID {battery_id}: {e}\n{error_trace}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
+@battery_bp.route('/batteries/<int:battery_id>/data', methods=['POST'])
+def add_battery_data(battery_id):
+    """Añadir nuevos datos de monitoreo para una batería."""
+    battery = Battery.query.get(battery_id)
+    if not battery:
+        return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'Datos de entrada no proporcionados'}), 400
+
+    required_fields = ['voltage', 'current', 'temperature', 'soc', 'soh', 'cycles']
+    for field in required_fields:
+        if field not in data:
+            return jsonify({'success': False, 'error': f'Campo requerido faltante: {field}'}), 400
+
+    try:
+        # Usar el timestamp proporcionado o el actual si no se proporciona
+        timestamp = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00')) if data.get('timestamp') else datetime.now(timezone.utc)
+
+        new_data = BatteryData(
+            battery_id=battery_id,
+            timestamp=timestamp,
+            voltage=data['voltage'],
+            current=data['current'],
+            temperature=data['temperature'],
+            soc=data['soc'],
+            soh=data['soh'],
+            cycles=data['cycles'],
+            status=data.get('status', 'optimal') # Valor por defecto 'optimal'
+        )
+        db.session.add(new_data)
+        db.session.commit()
+        current_app.logger.info(f"Datos añadidos para batería {battery_id}. SOC: {new_data.soc}%, Temp: {new_data.temperature}°C.")
+        return jsonify({'success': True, 'data': new_data.to_dict()}), 201
+    except ValueError as e:
+        return jsonify({'success': False, 'error': f'Error en el formato de fecha/hora: {e}'}), 400
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Error al añadir datos para batería {battery_id}: {e}\n{error_trace}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
+
+@battery_bp.route('/batteries/<int:battery_id>/data', methods=['GET'])
+def get_battery_data(battery_id):
+    """Obtener datos de monitoreo históricos para una batería, con filtrado por rango de tiempo e intervalo."""
+    try:
         battery = Battery.query.get(battery_id)
         if not battery:
             return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
 
-        if file and allowed_file(file.filename, ALLOWED_EXTENSIONS):
-            file_extension = file.filename.rsplit('.', 1)[1].lower()
-            df = None
+        time_range = request.args.get('time_range', 'last_24_hours') # Ej: 'last_7_days', 'last_30_days', 'all'
+        interval = request.args.get('interval', 'hourly') # Ej: 'hourly', 'daily', 'monthly'
 
-            if file_extension in ['csv', 'txt']:
-                df = pd.read_csv(io.StringIO(file.stream.read().decode('utf-8')))
-            elif file_extension in ['xlsx', 'xls']:
-                df = pd.read_excel(file.stream)
-            else:
-                return jsonify({'success': False, 'error': 'Formato de archivo no soportado'}), 400
+        query = BatteryData.query.filter_by(battery_id=battery_id)
 
-            # Asegúrate de que las columnas esperadas están presentes
-            expected_columns = ['timestamp', 'voltage', 'current', 'temperature', 'soc', 'soh', 'cycles']
-            if not all(col in df.columns for col in expected_columns):
-                missing_cols = [col for col in expected_columns if col not in df.columns]
-                return jsonify({'success': False, 'error': f'Faltan columnas requeridas en el archivo: {", ".join(missing_cols)}'}), 400
+        # Filtrado por rango de tiempo
+        end_time = datetime.now(timezone.utc)
+        if time_range == 'last_24_hours':
+            start_time = end_time - timedelta(hours=24)
+        elif time_range == 'last_7_days':
+            start_time = end_time - timedelta(days=7)
+        elif time_range == 'last_30_days':
+            start_time = end_time - timedelta(days=30)
+        elif time_range == 'last_year':
+            start_time = end_time - timedelta(days=365)
+        else: # 'all'
+            start_time = None # No filter by start time
 
-            data_to_add = []
-            for index, row in df.iterrows():
-                try:
-                    timestamp = datetime.fromisoformat(row['timestamp'].replace('Z', '+00:00')) if isinstance(row['timestamp'], str) else row['timestamp']
-                    # Asegurarse de que el timestamp sea un objeto datetime
-                    if not isinstance(timestamp, datetime):
-                        # Intentar convertir si es un timestamp numérico (ej. de Excel)
-                        if isinstance(timestamp, (int, float)):
-                            timestamp = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-                        else:
-                            raise ValueError("Timestamp no es un formato de fecha reconocido.")
+        if start_time:
+            query = query.filter(BatteryData.timestamp >= start_time)
 
-                    data_to_add.append(BatteryData(
-                        battery_id=battery_id,
-                        timestamp=timestamp,
-                        voltage=row['voltage'],
-                        current=row['current'],
-                        temperature=row['temperature'],
-                        soc=row['soc'],
-                        soh=row['soh'],
-                        cycles=row['cycles'],
-                        # Incluye otros campos si existen en el archivo y en tu modelo
-                        internal_resistance=row.get('internal_resistance'),
-                        power=row.get('power'),
-                        efficiency=row.get('efficiency'),
-                        charge_rate=row.get('charge_rate'),
-                        discharge_rate=row.get('discharge_rate'),
-                        ambient_temperature=row.get('ambient_temperature'),
-                        humidity=row.get('humidity')
-                    ))
-                except Exception as row_e:
-                    current_app.logger.warning(f"Error al procesar fila {index+1}: {row_e}. Fila omitida.")
-                    continue
+        # Ordenar por timestamp
+        query = query.order_by(BatteryData.timestamp.asc())
+        all_data = query.all()
 
-            if not data_to_add:
-                return jsonify({'success': False, 'error': 'No se pudieron extraer datos válidos del archivo o el archivo está vacío'}), 400
+        # Agregación por intervalo (simplificado para ejemplo)
+        # En una aplicación real, usarías Pandas o funciones de base de datos para una agregación más eficiente
+        aggregated_data = []
+        if interval == 'hourly':
+            # Agrupar por hora
+            df = pd.DataFrame([d.to_dict() for d in all_data])
+            if not df.empty:
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df.set_index('timestamp', inplace=True)
+                # Seleccionar columnas numéricas para promediar
+                numeric_cols = ['voltage', 'current', 'temperature', 'soc', 'soh', 'cycles']
+                # Asegurarse de que solo las columnas existentes y numéricas se incluyan en el promedio
+                cols_to_avg = [col for col in numeric_cols if col in df.columns]
+                
+                if not cols_to_avg:
+                    # Si no hay columnas numéricas para promediar, simplemente devolver los datos crudos o manejar
+                    current_app.logger.warning(f"No hay columnas numéricas para promediar en datos de batería para intervalo {interval}.")
+                    aggregated_data = [d.to_dict() for d in all_data] # Devuelve datos crudos si no hay columnas numéricas
+                else:
+                    aggregated_df = df[cols_to_avg].resample('H').mean().reset_index()
+                    aggregated_data = aggregated_df.to_dict(orient='records')
 
-            db.session.bulk_save_objects(data_to_add)
-            db.session.commit()
-            current_app.logger.info(f"Se cargaron {len(data_to_add)} puntos de datos para la batería {battery_id}.")
-            return jsonify({'success': True, 'message': f'Se cargaron {len(data_to_add)} puntos de datos con éxito'}), 200
-        else:
-            return jsonify({'success': False, 'error': 'Tipo de archivo no permitido'}), 400
+        elif interval == 'daily':
+            # Agrupar por día
+            df = pd.DataFrame([d.to_dict() for d in all_data])
+            if not df.empty:
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df.set_index('timestamp', inplace=True)
+                numeric_cols = ['voltage', 'current', 'temperature', 'soc', 'soh', 'cycles']
+                cols_to_avg = [col for col in numeric_cols if col in df.columns]
+                
+                if not cols_to_avg:
+                    current_app.logger.warning(f"No hay columnas numéricas para promediar en datos de batería para intervalo {interval}.")
+                    aggregated_data = [d.to_dict() for d in all_data]
+                else:
+                    aggregated_df = df[cols_to_avg].resample('D').mean().reset_index()
+                    aggregated_data = aggregated_df.to_dict(orient='records')
+        
+        elif interval == 'monthly':
+            # Agrupar por mes
+            df = pd.DataFrame([d.to_dict() for d in all_data])
+            if not df.empty:
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df.set_index('timestamp', inplace=True)
+                numeric_cols = ['voltage', 'current', 'temperature', 'soc', 'soh', 'cycles']
+                cols_to_avg = [col for col in numeric_cols if col in df.columns]
+                
+                if not cols_to_avg:
+                    current_app.logger.warning(f"No hay columnas numéricas para promediar en datos de batería para intervalo {interval}.")
+                    aggregated_data = [d.to_dict() for d in all_data]
+                else:
+                    aggregated_df = df[cols_to_avg].resample('M').mean().reset_index()
+                    aggregated_data = aggregated_df.to_dict(orient='records')
+        else: # No agregación (intervalo 'raw' o desconocido)
+            aggregated_data = [d.to_dict() for d in all_data]
+
+        current_app.logger.debug(f"Obtenidos {len(aggregated_data)} puntos de datos para batería {battery_id} con rango '{time_range}' e intervalo '{interval}'.")
+        return jsonify({'success': True, 'data': aggregated_data, 'battery_id': battery_id})
     except Exception as e:
-        db.session.rollback()
         error_trace = traceback.format_exc()
-        current_app.logger.error(f"Error al cargar datos de batería: {e}\n{error_trace}")
+        current_app.logger.error(f"Error al obtener datos de batería para ID {battery_id}: {e}\n{error_trace}")
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
+@battery_bp.route('/batteries/<int:battery_id>/summary', methods=['GET'])
+def get_battery_summary(battery_id):
+    """Obtener un resumen del estado actual de una batería."""
+    try:
+        battery = Battery.query.get(battery_id)
+        if not battery:
+            return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
+
+        latest_data = BatteryData.query.filter_by(battery_id=battery_id).order_by(BatteryData.timestamp.desc()).first()
+
+        summary = {
+            'battery_info': battery.to_dict(),
+            'latest_data': latest_data.to_dict() if latest_data else None,
+            'status': latest_data.status if latest_data else 'unknown'
+        }
+        current_app.logger.debug(f"Obtenido resumen para batería {battery_id}.")
+        return jsonify({'success': True, 'data': summary})
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Error al obtener resumen de batería para ID {battery_id}: {e}\n{error_trace}")
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
+
+@battery_bp.route('/upload/battery_data', methods=['POST'])
+def upload_battery_data():
+    """Cargar datos de batería desde un archivo."""
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No se encontró el archivo en la solicitud'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'Nombre de archivo vacío'}), 400
+    if not allowed_file(file.filename, ALLOWED_EXTENSIONS):
+        return jsonify({'success': False, 'error': 'Tipo de archivo no permitido'}), 400
+
+    battery_id = request.form.get('battery_id')
+    if not battery_id:
+        return jsonify({'success': False, 'error': 'ID de batería no proporcionado'}), 400
+
+    try:
+        battery = Battery.query.get(battery_id)
+        if not battery:
+            return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
+
+        df = pd.read_csv(file) # Asume CSV, podrías añadir lógica para xlsx
+        
+        # Validar columnas necesarias en el CSV
+        required_cols = ['timestamp', 'voltage', 'current', 'temperature', 'soc', 'soh', 'cycles']
+        if not all(col in df.columns for col in required_cols):
+            return jsonify({'success': False, 'error': f'El archivo CSV debe contener las columnas: {", ".join(required_cols)}'}), 400
+
+        for index, row in df.iterrows():
+            # Convertir timestamp a objeto datetime
+            timestamp = datetime.fromisoformat(row['timestamp'].replace('Z', '+00:00')) if isinstance(row['timestamp'], str) else row['timestamp']
+
+            new_data = BatteryData(
+                battery_id=battery_id,
+                timestamp=timestamp,
+                voltage=row['voltage'],
+                current=row['current'],
+                temperature=row['temperature'],
+                soc=row['soc'],
+                soh=row['soh'],
+                cycles=row['cycles'],
+                status=row.get('status', 'optimal')
+            )
+            db.session.add(new_data)
+        db.session.commit()
+        current_app.logger.info(f"Datos cargados exitosamente desde el archivo para batería {battery_id}. Total de filas: {len(df)}.")
+        return jsonify({'success': True, 'message': f'Datos de {len(df)} filas cargados exitosamente.'}), 200
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f'Error en el formato de datos del archivo (ej. fecha/hora): {e}'}), 400
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Error al cargar datos desde el archivo para batería {battery_id}: {e}\n{error_trace}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
+
+@battery_bp.route('/upload/thermal_image', methods=['POST'])
+def upload_thermal_image():
+    """Cargar una imagen térmica para una batería."""
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No se encontró el archivo de imagen en la solicitud'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'Nombre de archivo vacío'}), 400
+    if not allowed_file(file.filename, ALLOWED_IMAGE_EXTENSIONS):
+        return jsonify({'success': False, 'error': 'Tipo de archivo de imagen no permitido'}), 400
+
+    battery_id = request.form.get('battery_id')
+    if not battery_id:
+        return jsonify({'success': False, 'error': 'ID de batería no proporcionado'}), 400
+
+    try:
+        battery = Battery.query.get(battery_id)
+        if not battery:
+            return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
+
+        # Guardar la imagen en un directorio configurado o en almacenamiento en la nube
+        # Por simplicidad, aquí se usa un enfoque básico de guardar en el sistema de archivos
+        # En producción, considera servicios como S3, Google Cloud Storage, etc.
+        
+        # Generar un nombre de archivo único
+        filename = f"{battery_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+        upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads')
+        os.makedirs(upload_folder, exist_ok=True)
+        filepath = os.path.join(upload_folder, filename)
+        file.save(filepath)
+
+        new_image = ThermalImage(
+            battery_id=battery_id,
+            image_path=filepath, # Guardar la ruta donde se almacenó la imagen
+            timestamp=datetime.now(timezone.utc),
+            temperature_max=request.form.get('temperature_max'), # Asume que estos datos se envían
+            temperature_min=request.form.get('temperature_min'),
+            temperature_avg=request.form.get('temperature_avg')
+        )
+        db.session.add(new_image)
+        db.session.commit()
+        current_app.logger.info(f"Imagen térmica cargada para batería {battery_id}: {filename}.")
+        return jsonify({'success': True, 'message': 'Imagen térmica cargada correctamente', 'data': new_image.to_dict()}), 201
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Error al cargar imagen térmica para batería {battery_id}: {e}\n{error_trace}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
+
+@battery_bp.route('/batteries/<int:battery_id>/thermal_images', methods=['GET'])
+def get_thermal_images(battery_id):
+    """Obtener las imágenes térmicas de una batería."""
+    try:
+        battery = Battery.query.get(battery_id)
+        if not battery:
+            return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
+        
+        images = ThermalImage.query.filter_by(battery_id=battery_id).order_by(ThermalImage.timestamp.desc()).all()
+        images_list = [image.to_dict() for image in images]
+        current_app.logger.debug(f"Obtenidas {len(images_list)} imágenes térmicas para batería {battery_id}.")
+        return jsonify({'success': True, 'data': images_list})
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Error al obtener imágenes térmicas para batería {battery_id}: {e}\n{error_trace}")
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
+
+@battery_bp.route('/uploads/<filename>')
+def uploaded_file(filename):
+    """Servir archivos cargados (imágenes térmicas)."""
+    upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads')
+    return send_file(os.path.join(upload_folder, filename))
 
 @battery_bp.route('/batteries/<int:battery_id>/alerts', methods=['GET'])
 def get_battery_alerts(battery_id):
@@ -458,7 +475,10 @@ def get_battery_alerts(battery_id):
         if not battery:
             return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
 
-        alerts = Alert.query.filter_by(battery_id=battery_id).order_by(Alert.timestamp.desc()).all()
+        # MODIFICACIÓN: Cambiado 'Alert.timestamp' a 'Alert.id' para solucionar AttributeError.
+        # Se recomienda añadir una columna 'timestamp' o 'created_at' al modelo Alert en src/models/battery.py
+        # y luego usar 'Alert.timestamp.desc()' o 'Alert.created_at.desc()' aquí.
+        alerts = Alert.query.filter_by(battery_id=battery_id).order_by(Alert.id.desc()).all()
         alerts_list = [alert.to_dict() for alert in alerts]
 
         current_app.logger.debug(f"Obtenidas {len(alerts_list)} alertas para batería {battery_id}.")
@@ -468,7 +488,6 @@ def get_battery_alerts(battery_id):
         current_app.logger.error(f"Error al obtener alertas para batería {battery_id}: {e}\n{error_trace}")
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
-
 @battery_bp.route('/batteries/<int:battery_id>/analysis_results', methods=['GET'])
 def get_battery_analysis_results(battery_id):
     """Obtener resultados de análisis para una batería específica."""
@@ -477,7 +496,10 @@ def get_battery_analysis_results(battery_id):
         if not battery:
             return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
 
-        analysis_results = AnalysisResult.query.filter_by(battery_id=battery_id).order_by(AnalysisResult.timestamp.desc()).all()
+        # MODIFICACIÓN: Cambiado 'AnalysisResult.timestamp' a 'AnalysisResult.id' para solucionar AttributeError.
+        # Se recomienda añadir una columna 'timestamp' o 'created_at' al modelo AnalysisResult en src/models/battery.py
+        # y luego usar 'AnalysisResult.timestamp.desc()' o 'AnalysisResult.created_at.desc()' aquí.
+        analysis_results = AnalysisResult.query.filter_by(battery_id=battery_id).order_by(AnalysisResult.id.desc()).all()
         results_list = [result.to_dict() for result in analysis_results]
 
         current_app.logger.debug(f"Obtenidos {len(results_list)} resultados de análisis para batería {battery_id}.")
@@ -505,122 +527,90 @@ def get_battery_maintenance_records(battery_id):
         current_app.logger.error(f"Error al obtener registros de mantenimiento para batería {battery_id}: {e}\n{error_trace}")
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
-
 @battery_bp.route('/batteries/<int:battery_id>/maintenance_records', methods=['POST'])
 def add_maintenance_record(battery_id):
     """Añadir un nuevo registro de mantenimiento para una batería."""
+    battery = Battery.query.get(battery_id)
+    if not battery:
+        return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'Datos de entrada no proporcionados'}), 400
+
+    required_fields = ['maintenance_type', 'description', 'performed_by', 'performed_at']
+    for field in required_fields:
+        if field not in data:
+            return jsonify({'success': False, 'error': f'Campo requerido faltante: {field}'}), 400
+
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'No se proporcionaron datos JSON'}), 400
-
-        battery = Battery.query.get(battery_id)
-        if not battery:
-            return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
-
-        required_fields = ['description', 'performed_by', 'cost', 'next_due_date']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'success': False, 'error': f'Falta el campo requerido: {field}'}), 400
-
-        # Convertir fechas
-        performed_at = datetime.fromisoformat(data.get('performed_at', datetime.now(timezone.utc).isoformat()).replace('Z', '+00:00'))
-        next_due_date = datetime.fromisoformat(data['next_due_date'].replace('Z', '+00:00'))
+        # Convertir la fecha/hora a objeto datetime
+        performed_at = datetime.fromisoformat(data['performed_at'].replace('Z', '+00:00')) if isinstance(data['performed_at'], str) else data['performed_at']
 
         new_record = MaintenanceRecord(
             battery_id=battery_id,
+            maintenance_type=data['maintenance_type'],
             description=data['description'],
-            performed_at=performed_at,
             performed_by=data['performed_by'],
-            cost=data['cost'],
-            next_due_date=next_due_date,
-            notes=data.get('notes')
+            performed_at=performed_at,
+            cost=data.get('cost')
         )
         db.session.add(new_record)
         db.session.commit()
-        current_app.logger.info(f"Registro de mantenimiento añadido para batería {battery_id}.")
+        current_app.logger.info(f"Registro de mantenimiento añadido para batería {battery_id}. Tipo: {new_record.maintenance_type}.")
         return jsonify({'success': True, 'data': new_record.to_dict()}), 201
+    except ValueError as e:
+        return jsonify({'success': False, 'error': f'Error en el formato de fecha/hora: {e}'}), 400
     except Exception as e:
-        db.session.rollback()
         error_trace = traceback.format_exc()
         current_app.logger.error(f"Error al añadir registro de mantenimiento para batería {battery_id}: {e}\n{error_trace}")
-        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
-
-
-@battery_bp.route('/thermal_images', methods=['POST'])
-def upload_thermal_image():
-    """Cargar una imagen térmica para una batería."""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'No se encontró la imagen en la solicitud'}), 400
-
-        file = request.files['file']
-        battery_id = request.form.get('battery_id')
-
-        if file.filename == '':
-            return jsonify({'success': False, 'error': 'Nombre de archivo de imagen vacío'}), 400
-
-        if not battery_id:
-            return jsonify({'success': False, 'error': 'Se requiere el ID de la batería para cargar la imagen térmica'}), 400
-
-        battery = Battery.query.get(battery_id)
-        if not battery:
-            return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
-
-        if file and allowed_file(file.filename, ALLOWED_IMAGE_EXTENSIONS):
-            # Guardar la imagen en una ubicación accesible (ej. /static/thermal_images)
-            # Asegúrate de que el directorio exista
-            upload_folder = os.path.join(current_app.root_path, 'static', 'thermal_images')
-            os.makedirs(upload_folder, exist_ok=True)
-
-            filename = f"battery_{battery_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
-            filepath = os.path.join(upload_folder, filename)
-            file.save(filepath)
-
-            # Guardar la ruta en la base de datos
-            new_image = ThermalImage(
-                battery_id=battery_id,
-                timestamp=datetime.now(timezone.utc),
-                image_url=f"/static/thermal_images/{filename}",
-                temperature_data=json.loads(request.form.get('temperature_data', '{}')) # Datos de temperatura como JSON string
-            )
-            db.session.add(new_image)
-            db.session.commit()
-            current_app.logger.info(f"Imagen térmica cargada para batería {battery_id}.")
-            return jsonify({'success': True, 'message': 'Imagen térmica cargada con éxito', 'data': new_image.to_dict()}), 201
-        else:
-            return jsonify({'success': False, 'error': 'Tipo de archivo de imagen no permitido'}), 400
-    except Exception as e:
         db.session.rollback()
-        error_trace = traceback.format_exc()
-        current_app.logger.error(f"Error al cargar imagen térmica: {e}\n{error_trace}")
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
-
-@battery_bp.route('/batteries/<int:battery_id>/thermal_images', methods=['GET'])
-def get_thermal_images(battery_id):
-    """Obtener lista de imágenes térmicas para una batería específica."""
+# Nueva ruta para simular la generación de un reporte de batería
+from datetime import timedelta
+@battery_bp.route('/batteries/<int:battery_id>/generate_report', methods=['GET'])
+def generate_battery_report(battery_id):
     try:
         battery = Battery.query.get(battery_id)
         if not battery:
             return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
 
-        thermal_images = ThermalImage.query.filter_by(battery_id=battery_id).order_by(ThermalImage.timestamp.desc()).all()
-        images_list = [img.to_dict() for img in thermal_images]
+        # Obtener datos de los últimos 30 días
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=30)
+        
+        historical_data = BatteryData.query.filter_by(battery_id=battery_id)\
+                                        .filter(BatteryData.timestamp >= start_time)\
+                                        .order_by(BatteryData.timestamp.asc()).all()
+        
+        alerts = Alert.query.filter_by(battery_id=battery_id)\
+                            .filter(Alert.timestamp >= start_time if hasattr(Alert, 'timestamp') else True)\
+                            .order_by(Alert.id.desc()).all() # Usar id si no hay timestamp
+        
+        analysis_results = AnalysisResult.query.filter_by(battery_id=battery_id)\
+                                                .filter(AnalysisResult.timestamp >= start_time if hasattr(AnalysisResult, 'timestamp') else True)\
+                                                .order_by(AnalysisResult.id.desc()).all() # Usar id si no hay timestamp
 
-        current_app.logger.debug(f"Obtenidas {len(images_list)} imágenes térmicas para batería {battery_id}.")
-        return jsonify({'success': True, 'data': images_list, 'battery_id': battery_id})
+        maintenance_records = MaintenanceRecord.query.filter_by(battery_id=battery_id)\
+                                                .filter(MaintenanceRecord.performed_at >= start_time)\
+                                                .order_by(MaintenanceRecord.performed_at.desc()).all()
+
+        report_data = {
+            'battery_info': battery.to_dict(),
+            'historical_data': [d.to_dict() for d in historical_data],
+            'alerts': [a.to_dict() for a in alerts],
+            'analysis_results': [ar.to_dict() for ar in analysis_results],
+            'maintenance_records': [mr.to_dict() for mr in maintenance_records],
+            'report_generated_at': datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Opcional: Generar un archivo HTML o PDF en el servidor y luego enviarlo
+        # Por ahora, simplemente devolver el JSON de los datos del reporte.
+        current_app.logger.info(f"Reporte generado para batería {battery_id}.")
+        return jsonify({'success': True, 'data': report_data})
+
     except Exception as e:
         error_trace = traceback.format_exc()
-        current_app.logger.error(f"Error al obtener imágenes térmicas para batería {battery_id}: {e}\n{error_trace}")
+        current_app.logger.error(f"Error al generar reporte para batería {battery_id}: {e}\n{error_trace}")
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
-
-
-@battery_bp.route('/static/thermal_images/<filename>')
-def serve_thermal_image(filename):
-    """Servir imágenes térmicas estáticas."""
-    try:
-        return send_file(os.path.join(current_app.root_path, 'static', 'thermal_images', filename))
-    except Exception as e:
-        current_app.logger.error(f"Error al servir imagen térmica {filename}: {e}")
-        return jsonify({'success': False, 'error': 'Imagen no encontrada o error del servidor'}), 404
