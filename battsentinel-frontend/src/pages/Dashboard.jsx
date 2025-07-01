@@ -1,5 +1,6 @@
+// src/pages/Dashboard.jsx
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom' // Añadido Link
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -23,10 +24,11 @@ import {
   Eye,
   Settings,
   RefreshCw,
-  Home // Asegúrate de que Home esté importado
+  Home,
+  PlusCircle // Añadido PlusCircle
 } from 'lucide-react'
 
-// Mock data for demonstration
+// Mock data (se mantienen como fallback si no hay baterías reales o para props no disponibles)
 const mockBatteries = [
   {
     id: 1,
@@ -40,7 +42,10 @@ const mockBatteries = [
     cycles: 245,
     status: 'good',
     last_update: new Date(Date.now() - 5 * 60 * 1000),
-    alerts: []
+    alerts: [],
+    // Añadimos Model y serial_number a los mocks por consistencia
+    model: 'BS-100',
+    serial_number: 'BS001MOCK'
   },
   {
     id: 2,
@@ -54,7 +59,9 @@ const mockBatteries = [
     cycles: 312,
     status: 'fair',
     last_update: new Date(Date.now() - 12 * 60 * 1000),
-    alerts: [{ severity: 'medium', message: 'Temperatura elevada' }]
+    alerts: [{ severity: 'medium', message: 'Temperatura elevada' }],
+    model: 'BS-200',
+    serial_number: 'BS002MOCK'
   },
   {
     id: 3,
@@ -71,7 +78,9 @@ const mockBatteries = [
     alerts: [
       { severity: 'high', message: 'SOC bajo' },
       { severity: 'medium', message: 'Degradación acelerada' }
-    ]
+    ],
+    model: 'BS-300',
+    serial_number: 'BS003MOCK'
   }
 ]
 
@@ -88,19 +97,58 @@ const mockSystemStats = {
 export default function Dashboard() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { batteries, loading, loadBatteries } = useBattery()
+  
+  const { 
+    // Añadimos getVisibleBatteries para el filtrado en el dashboard
+    getVisibleBatteries, 
+    // Aseguramos que 'error' sea desestructurado, ya que se usa más abajo
+    batteries, loading, loadBatteries, error 
+  } = useBattery()
+  
   const [refreshing, setRefreshing] = useState(false)
   const [selectedTimeRange, setSelectedTimeRange] = useState('24h')
 
-  // Use mock data for demonstration
-  const displayBatteries = batteries.length > 0 ? batteries : mockBatteries
-  const stats = mockSystemStats
+  // NUEVO ESTADO: `displayBatteries` contendrá solo las baterías visibles
+  const [displayBatteries, setDisplayBatteries] = useState([]);
+  
+  // Calcular estadísticas del sistema basadas en las baterías REALES (no filtradas)
+  const stats = {
+    totalBatteries: batteries.length, // Usar 'batteries' directamente del contexto
+    activeBatteries: batteries.filter(b => b.status === 'active').length, // Usar 'batteries'
+    criticalAlerts: batteries.reduce((acc, battery) => { // Usar 'batteries'
+      // Usar la propiedad 'alerts' si existe y tiene contenido.
+      // Recuerda que el backend actualmente NO envía 'alerts' en la batería por defecto.
+      return acc + (battery.alerts ? battery.alerts.filter(alert => alert.severity === 'high').length : 0);
+    }, 0),
+    // Esto es un placeholder. Para un valor real de averageHealth, necesitarías el SOH de cada batería del backend.
+    // Si la batería no tiene 'soh', se usará 0 en el promedio, o el valor mock si no hay baterías.
+    averageHealth: batteries.length > 0 // Usar 'batteries'
+                     ? (batteries.reduce((sum, b) => sum + (b.soh || 0), 0) / batteries.length) // Si el SOH viene del backend, úsalo
+                     : mockSystemStats.averageHealth, // Si no hay baterías o SOH, usa el mock
+    
+    // Estos valores (totalCycles, energyConsumed, uptime)
+    // normalmente vendrían de un endpoint de estadísticas global del backend.
+    // Por ahora, se mantendrán los valores mock o placeholders hasta que el backend los provea.
+    totalCycles: mockSystemStats.totalCycles, 
+    energyConsumed: mockSystemStats.energyConsumed,
+    uptime: mockSystemStats.uptime 
+  };
 
+  // useEffect existente para cargar todas las baterías al montar el componente.
   useEffect(() => {
-    if (batteries.length === 0) {
+    // La lógica para cargar baterías ya está en BatteryContext y se ejecuta al autenticarse.
+    // Esta parte asegura que si de alguna manera no se cargaron, se intenten cargar.
+    if (batteries.length === 0) { // Opcional: podrías remover esta condición si confías en el useEffect de BatteryContext.
       loadBatteries()
     }
-  }, [])
+  }, [batteries.length, loadBatteries])
+
+  // NUEVO useEffect: Se encarga de actualizar la lista de baterías a mostrar (displayBatteries)
+  // cada vez que la lista completa de baterías o el estado de ocultamiento cambie en BatteryContext.
+  useEffect(() => {
+    // getVisibleBatteries() ya devuelve la lista filtrada de las baterías NO ocultas.
+    setDisplayBatteries(getVisibleBatteries());
+  }, [getVisibleBatteries]); // Dependencia de useCallback, es estable.
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -112,6 +160,7 @@ export default function Dashboard() {
     switch (status) {
       case 'excellent':
       case 'good':
+      case 'active': 
         return <Activity className="h-4 w-4 text-green-500" />
       case 'fair':
         return <Clock className="h-4 w-4 text-yellow-500" />
@@ -144,11 +193,11 @@ export default function Dashboard() {
         
         {/* Contenedor de botones de acción */}
         <div className="flex items-center space-x-2">
-          {/* Botón de Regresar al Inicio (NUEVA UBICACIÓN) */}
+          {/* Botón de Regresar al Inicio */}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => navigate('/')} // Navega a la ruta raíz (LandingPage)
+            onClick={() => navigate('/')} 
           >
             <Home className="h-4 w-4 mr-2" />
             Regresar al Inicio
@@ -182,6 +231,7 @@ export default function Dashboard() {
             <Battery className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
+            {/* stats ya se calcula con los datos reales */}
             <div className="text-2xl font-bold">{stats.totalBatteries}</div>
             <p className="text-xs text-muted-foreground">
               {stats.activeBatteries} activas
@@ -195,6 +245,7 @@ export default function Dashboard() {
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
+            {/* stats ya se calcula con los datos reales */}
             <div className="text-2xl font-bold">{formatPercentage(stats.averageHealth)}</div>
             <p className="text-xs text-muted-foreground">
               {getTrendIcon(stats.averageHealth - 80)} vs. mes anterior
@@ -208,6 +259,7 @@ export default function Dashboard() {
             <AlertTriangle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
+            {/* stats ya se calcula con los datos reales */}
             <div className="text-2xl font-bold text-red-600">{stats.criticalAlerts}</div>
             <p className="text-xs text-muted-foreground">
               Requieren atención inmediata
@@ -221,6 +273,7 @@ export default function Dashboard() {
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
+            {/* stats ya se calcula con los datos reales */}
             <div className="text-2xl font-bold text-green-600">{stats.uptime}</div>
             <p className="text-xs text-muted-foreground">
               Últimos 30 días
@@ -254,58 +307,78 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {displayBatteries.map((battery) => (
-                  <div
-                    key={battery.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer gap-4"
-                    onClick={() => navigate(`/batteries/${battery.id}`)}
-                  >
-                    <div className="flex items-center space-x-4">
-                      <div className="flex items-center space-x-2">
-                        {getStatusIcon(battery.status)}
-                        <div>
-                          <h4 className="font-medium text-foreground">{battery.name}</h4>
-                          <p className="text-sm text-muted-foreground">{battery.type}</p>
+                {/* Ahora usamos displayBatteries que contiene solo las baterías visibles */}
+                {displayBatteries.length === 0 ? (
+                    <div className="text-center py-4">
+                        <Battery className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">
+                          No hay baterías visibles en este momento. Si has ocultado alguna, puedes gestionarlas desde la página de Baterías.
+                        </p>
+                        <Button onClick={() => navigate('/batteries')} className="mt-4">Agregar Batería</Button>
+                    </div>
+                ) : (
+                  displayBatteries.map((battery) => (
+                    <div
+                      key={battery.id}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer gap-4"
+                      onClick={() => navigate(`/batteries/${battery.id}`)}
+                    >
+                      <div className="flex items-center space-x-4">
+                        <div className="flex items-center space-x-2">
+                          {getStatusIcon(battery.status)}
+                          <div>
+                            {/* Mostrar Nombre, Modelo y Número de Serie */}
+                            <h4 className="font-medium text-foreground">{battery.name}</h4> {/* Usa 'Name' del backend */}
+                            <p className="text-sm text-muted-foreground">
+                              {battery.type} {battery.model && `(${battery.model})`}
+                            </p>
+                            {battery.serial_number && (
+                              <p className="text-xs text-muted-foreground">SN: {battery.serial_number}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Responsive metrics grid */}
+                      <div className="grid grid-cols-3 sm:flex sm:items-center gap-4 sm:gap-6">
+                        <div className="text-center">
+                          <p className="text-xs sm:text-sm font-medium">SOC</p>
+                          {/* Mostrar battery.soc si existe, sino "--" */}
+                          <p className="text-base sm:text-lg font-bold text-blue-600">
+                            {battery.soc ? formatPercentage(battery.soc, 0) : '--'}
+                          </p>
+                        </div>
+
+                        <div className="text-center">
+                          <p className="text-xs sm:text-sm font-medium">SOH</p>
+                          {/* Mostrar battery.soh si existe, sino "--" */}
+                          <p className="text-base sm:text-lg font-bold text-green-600">
+                            {battery.soh ? formatPercentage(battery.soh, 0) : '--'}
+                          </p>
+                        </div>
+
+                        <div className="text-center">
+                          <p className="text-xs sm:text-sm font-medium">Temp</p>
+                          {/* Mostrar battery.temperature si existe, sino "--°C" */}
+                          <p className="text-base sm:text-lg font-bold text-orange-600">
+                            {battery.temperature ? `${formatNumber(battery.temperature, 1)}°C` : '--°C'}
+                          </p>
+                        </div>
+
+                        <div className="col-span-3 sm:col-span-1 flex items-center justify-center sm:justify-start space-x-2">
+                          {battery.alerts && battery.alerts.length > 0 && (
+                            <Badge variant="destructive">
+                              {battery.alerts.length}
+                            </Badge>
+                          )}
+                          <Badge variant="outline" className={getBatteryStatusColor(battery.status)}>
+                            {battery.status || 'unknown'}
+                          </Badge>
                         </div>
                       </div>
                     </div>
-
-                    {/* Responsive metrics grid */}
-                    <div className="grid grid-cols-3 sm:flex sm:items-center gap-4 sm:gap-6">
-                      <div className="text-center">
-                        <p className="text-xs sm:text-sm font-medium">SOC</p>
-                        <p className="text-base sm:text-lg font-bold text-blue-600">
-                          {formatPercentage(battery.soc, 0)}
-                        </p>
-                      </div>
-
-                      <div className="text-center">
-                        <p className="text-xs sm:text-sm font-medium">SOH</p>
-                        <p className="text-base sm:text-lg font-bold text-green-600">
-                          {formatPercentage(battery.soh, 0)}
-                        </p>
-                      </div>
-
-                      <div className="text-center">
-                        <p className="text-xs sm:text-sm font-medium">Temp</p>
-                        <p className="text-base sm:text-lg font-bold text-orange-600">
-                          {formatNumber(battery.temperature, 1)}°C
-                        </p>
-                      </div>
-
-                      <div className="col-span-3 sm:col-span-1 flex items-center justify-center sm:justify-start space-x-2">
-                        {battery.alerts.length > 0 && (
-                          <Badge variant="destructive">
-                            {battery.alerts.length}
-                          </Badge>
-                        )}
-                        <Badge variant="outline" className={getBatteryStatusColor(battery.status)}>
-                          {battery.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
@@ -355,7 +428,6 @@ export default function Dashboard() {
                 <Settings className="h-4 w-4 mr-2" />
                 Configuración
               </Button>
-              {/* NOTA: El botón "Regresar al Inicio" se movió a la parte superior */}
             </CardContent>
           </Card>
 
@@ -375,11 +447,13 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {displayBatteries
-                  .filter(battery => battery.alerts.length > 0)
+                {displayBatteries // Usar displayBatteries para alertas si solo quieres alertas de las visibles
+                  .filter(battery => battery.alerts && battery.alerts.length > 0)
                   .slice(0, 3)
                   .map((battery) => (
-                    battery.alerts.map((alert, index) => (
+                    // Asegúrate de que la batería tenga una propiedad 'alerts' y que sea un array para poder mapear.
+                    // Esto maneja el caso de que 'alerts' sea undefined o null
+                    battery.alerts && Array.isArray(battery.alerts) && battery.alerts.map((alert, index) => (
                       <div
                         key={`${battery.id}-${index}`}
                         className="flex items-start space-x-3 p-3 border border-border rounded-lg"
@@ -387,7 +461,7 @@ export default function Dashboard() {
                         <AlertTriangle className="h-4 w-4 text-orange-500 mt-0.5" />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-foreground">
-                            {battery.name}
+                            {battery.Name || battery.name}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {alert.message}
@@ -403,7 +477,8 @@ export default function Dashboard() {
                     ))
                   ))}
                 
-                {displayBatteries.every(battery => battery.alerts.length === 0) && (
+                {/* Mostrar mensaje si no hay alertas */}
+                {displayBatteries.every(battery => !battery.alerts || battery.alerts.length === 0) && (
                   <div className="text-center py-4">
                     <Activity className="h-8 w-8 text-green-500 mx-auto mb-2" />
                     <p className="text-sm text-muted-foreground">
