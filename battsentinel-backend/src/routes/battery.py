@@ -197,9 +197,16 @@ def add_battery_data(battery_id):
             temperature=data.get('temperature'),
             soc=data.get('soc'),
             soh=data.get('soh'),
-            cycles=data.get('cycles'),
-            status=data.get('status')
+            cycles=data.get('cycles'),            
         )
+
+        # Asignar 'status' por separado, de forma defensiva
+        if 'status' in data and data['status'] is not None:
+            new_data.status = data['status']
+        # Si por alguna razón el cliente todavía envía 'batterystatus', lo mapeamos
+        elif 'batterystatus' in data and data['batterystatus'] is not None:
+            new_data.status = str(data['batterystatus']) # Convertir a string para el campo db.String
+            
         db.session.add(new_data)
         db.session.commit()
         current_app.logger.info(f"Nuevos datos añadidos a la batería {battery_id}.")
