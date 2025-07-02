@@ -81,12 +81,12 @@ class BatteryData(db.Model):
             'cycles': self.cycles,
             'internal_resistance': self.internal_resistance,
             'power': self.power,
-            'energy': self.energy,
+            'energy_rate': self.energy_rate,
+            'internal_resistance': self.internal_resistance,
+            'rul_days': self.rul_days,
             'efficiency': self.efficiency,
-            'charge_rate': self.charge_rate,
-            'discharge_rate': self.discharge_rate,
-            'ambient_temperature': self.ambient_temperature,
-            'humidity': self.humidity
+            'is_plugged': self.is_plugged,
+            'time_left': self.time_left
         }
 
 class Alert(db.Model):
