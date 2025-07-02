@@ -197,7 +197,15 @@ def add_battery_data(battery_id):
             temperature=data.get('temperature'),
             soc=data.get('soc'),
             soh=data.get('soh'),
-            cycles=data.get('cycles'),            
+            cycles=data.get('cycles'),   
+            power=data.get('power'), # Corrección: usa data.get()            
+            # --- CAMPOS AÑADIDOS / MEJORADOS ---
+            energy_rate=data.get('energy_rate'), 
+            internal_resistance=data.get('internal_resistance'), 
+            rul_days=data.get('rul_days'), 
+            efficiency=data.get('efficiency'), 
+            is_plugged=data.get('is_plugged'), 
+            time_left=data.get('time_left'), 
         )
 
         # Asignar 'status' por separado, de forma defensiva
