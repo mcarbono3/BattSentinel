@@ -14,8 +14,8 @@ class Battery(db.Model):
     model = Column(String(100))
     manufacturer = Column(String(100))
     serial_number = Column(String(100), unique=True)
-    capacity_ah = Column(Float, default=100.0)
-    voltage_nominal = Column(Float, default=12.0)
+    full_charge_capacity = Column(Float, nullable=True)
+    designvoltage = Column(Float, nullable=True)  
     chemistry = Column(String(50), default='Li-ion')
     installation_date = Column(DateTime, default=datetime.utcnow)
     location = Column(String(200))
@@ -34,8 +34,8 @@ class Battery(db.Model):
             'model': self.model,
             'manufacturer': self.manufacturer,
             'serial_number': self.serial_number,
-            'capacity_ah': self.capacity_ah,
-            'voltage_nominal': self.voltage_nominal,
+            'full_charge_capacity': self.full_charge_capacity,
+            'designvoltage': self.designvoltage,
             'chemistry': self.chemistry,
             'installation_date': self.installation_date.isoformat() if self.installation_date else None,
             'location': self.location,
@@ -50,23 +50,31 @@ class BatteryData(db.Model):
     
     id = Column(Integer, primary_key=True)
     battery_id = Column(Integer, ForeignKey('batteries.id'), nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
-    voltage = Column(Float)
-    current = Column(Float)
-    temperature = Column(Float)
-    soc = Column(Float)  # State of Charge
-    soh = Column(Float)  # State of Health
-    cycles = Column(Integer, default=0)
-    internal_resistance = Column(Float)
-    power = Column(Float)
-    energy = Column(Float)
-    efficiency = Column(Float)
-    
-    # Campos adicionales para análisis
-    charge_rate = Column(Float)
-    discharge_rate = Column(Float)
-    ambient_temperature = Column(Float)
-    humidity = Column(Float)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False) # Usar lambda para UTC        
+    voltage = Column(Float, nullable=True)
+    current = Column(Float, nullable=True)
+    temperature = Column(Float, nullable=True)
+    soc = Column(Float, nullable=True)  # State of Charge
+    soh = Column(Float, nullable=True)  # State of Health
+    cycles = Column(Integer, default=0, nullable=True)    
+    # Campos que ya tenías definidos o se han unificado
+    internal_resistance = Column(Float, nullable=True)
+    power = Column(Float, nullable=True)
+    efficiency = Column(Float, nullable=True)
+    # --- CAMPOS AÑADIDOS / CORREGIDOS (incluyendo los del JSON de monitoreo) ---
+    energy_rate = Column(Float, nullable=True) # Corregido: antes energy, ahora energy_rate
+    rul_days = Column(Integer, nullable=True)
+    is_plugged = Column(Boolean, nullable=True)
+    time_left = Column(Integer, nullable=True) # En segundos o minutos
+    status = Column(String(50), nullable=True) # Añadido: para manejar 'status' o 'batterystatus'
+    energy_consumed = Column(Float, nullable=True) # Añadido si lo envías desde el cliente
+    pressure = Column(Float, nullable=True) # Añadido si lo envías desde el cliente
+    humidity = Column(Float, nullable=True) # Ya estaba
+
+    # --- ¡NUEVOS CAMPOS AÑADIDOS DESDE TUS DATOS DE MONITOREO! ---
+    estimatedchargeremaining = Column(Float, nullable=True)
+    estimatedruntime = Column(Float, nullable=True) # En minutos o segundos      
+    source = Column(String(100), nullable=True) # Fuente de los datos
     
     def to_dict(self):
         return {
@@ -81,12 +89,19 @@ class BatteryData(db.Model):
             'cycles': self.cycles,
             'internal_resistance': self.internal_resistance,
             'power': self.power,
-            'energy_rate': self.energy_rate,
-            'internal_resistance': self.internal_resistance,
-            'rul_days': self.rul_days,
             'efficiency': self.efficiency,
+            'energy_rate': self.energy_rate,
+            'rul_days': self.rul_days,
             'is_plugged': self.is_plugged,
-            'time_left': self.time_left
+            'time_left': self.time_left,
+            'status': self.status,
+            'energy_consumed': self.energy_consumed,
+            'pressure': self.pressure,
+            'humidity': self.humidity,
+            # --- NUEVOS CAMPOS EN to_dict ---
+            'estimatedchargeremaining': self.estimatedchargeremaining,
+            'estimatedruntime': self.estimatedruntime,                
+            'source': self.source,
         }
 
 class Alert(db.Model):
