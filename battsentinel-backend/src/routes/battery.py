@@ -84,11 +84,37 @@ def create_battery():
         if not name:
             return jsonify({'success': False, 'error': 'El nombre de la batería es requerido'}), 400
 
+        # Extraer todos los campos esperados del request.json
+        model = data.get('model')
+        manufacturer = data.get('manufacturer')
+        serial_number = data.get('serial_number')
+        full_charge_capacity = data.get('full_charge_capacity') # ¡Campo actualizado!
+        designvoltage = data.get('designvoltage') # ¡Campo actualizado!
+        chemistry = data.get('chemistry') # ¡Campo actualizado! (antes era 'type')
+        installation_date_str = data.get('installation_date')
+        location = data.get('location')
+        status = data.get('status', 'active') # Usar 'active' como default si no se provee
+
+        # Convertir installation_date a objeto datetime, si se provee
+        installation_date = None
+        if installation_date_str:
+            try:
+                installation_date = datetime.fromisoformat(installation_date_str).replace(tzinfo=timezone.utc)
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Formato de fecha de instalación inválido. Use ISO 8601 (YYYY-MM-DDTHH:MM:SSZ).'}), 400
+
+
         new_battery = Battery(
             name=name,
-            type=data.get('type'),
-            nominal_voltage=data.get('nominal_voltage'),
-            capacity_ah=data.get('capacity_ah')
+            model=model,
+            manufacturer=manufacturer,
+            serial_number=serial_number,
+            full_charge_capacity=full_charge_capacity,
+            designvoltage=designvoltage,
+            chemistry=chemistry,
+            installation_date=installation_date,
+            location=location,
+            status=status
         )
         db.session.add(new_battery)
         db.session.commit()
