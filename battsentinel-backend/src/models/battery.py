@@ -28,7 +28,8 @@ class Battery(db.Model):
     alerts = relationship('Alert', backref='battery', lazy=True, cascade='all, delete-orphan')
     
     def to_dict(self):
-        return {
+	# 1. Inicializar el diccionario con los campos básicos de la batería
+        data = {
             'id': self.id,
             'name': self.name,
             'model': self.model,
@@ -43,6 +44,30 @@ class Battery(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
+
+        # 2. LÓGICA PARA OBTENER EL ÚLTIMO PUNTO DE DATOS
+        latest_data_point = db.session.query(BatteryData) \
+                            .filter(BatteryData.battery_id == self.id) \
+                            .order_by(BatteryData.timestamp.desc()) \
+                            .first()
+        # 3. Añadir solo los campos deseados de BatteryData al diccionario 'data'
+        if latest_data_point:
+            data['soc'] = latest_data_point.soc
+            data['soh'] = latest_data_point.soh
+            data['temperature'] = latest_data_point.temperature
+            data['is_plugged'] = latest_data_point.is_plugged
+            # Puedes añadir también la marca de tiempo si es útil para el frontend
+            data['latest_timestamp'] = latest_data_point.timestamp.isoformat() if latest_data_point.timestamp else None
+        else:
+            # Si no hay datos, inicializa los campos con None o '--'
+            data['soc'] = None
+            data['soh'] = None
+            data['temperature'] = None
+            data['is_plugged'] = None
+            data['latest_timestamp'] = None
+        
+        # 4. Finalmente, retornar el diccionario 'data' completo
+        return data
 
 class BatteryData(db.Model):
     """Modelo de Datos de Batería"""
