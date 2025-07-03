@@ -41,9 +41,9 @@ print(f"DEBUG (main.py): ID del objeto 'db' antes de init_app: {id(db)}")
 socketio = SocketIO(app, cors_allowed_origins="https://mcarbono3.github.io", async_mode="eventlet", logger=True, engineio_logger=True) # <-- AÑADIR ESTA LÍNEA
 
 # Importar Blueprints DESPUÉS de db y socketio para evitar problemas de importación circular
-from src.routes.battery import battery_bp
-from src.routes.system import system_bp
-from src.models.user import User # Importa el modelo User si lo usas en main.py
+from .routes.battery import battery_bp
+from .routes.system import system_bp
+from .models.user import User # Importa el modelo User si lo usas en main.py
 
 app.register_blueprint(system_bp, url_prefix='/api')
 
@@ -56,13 +56,13 @@ print(f"DEBUG (main.py): ID del objeto 'db' después de init_app: {id(db)}")
 # === PASO 2: Importar modelos y rutas DESPUÉS de que 'db' ha sido inicializada con 'app' ===
 # Esto asegura que los modelos usen la instancia de 'db' que ya está asociada con la aplicación.
 # ¡Asegúrate de que tus modelos y rutas importen 'db' desde este archivo 'main.py' ahora!
-from src.models.battery import Battery, BatteryData, Alert, AnalysisResult, ThermalImage, MaintenanceRecord
-from src.models.user import User
-from src.routes.battery import battery_bp
-from src.routes.ai_analysis import ai_bp
-from src.routes.digital_twin import twin_bp
-from src.routes.notifications import notifications_bp
-from src.services.windows_battery import windows_battery_service
+from .models.battery import Battery, BatteryData, Alert, AnalysisResult, ThermalImage, MaintenanceRecord
+from .models.user import User
+from .routes.battery import battery_bp
+from .routes.ai_analysis import ai_bp
+from .routes.digital_twin import twin_bp
+from .routes.notifications import notifications_bp
+from .services.windows_battery import windows_battery_service
 
 # Register blueprints - ¡IMPORTANTE: Añade url_prefix='/api' a los blueprints que pertenecen a la API!
 print("DEBUG (main.py): Registrando Blueprints...")
