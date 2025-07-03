@@ -6,9 +6,9 @@ import json
 import sys
 import os
 
-from src.main import db
-from src.models.battery import Battery, Alert
-from src.services.windows_battery import windows_battery_service
+from ..main import db
+from ..models.battery import Battery, Alert
+from ..services.windows_battery import windows_battery_service
 
 notifications_bp = Blueprint('notifications', __name__)
 
