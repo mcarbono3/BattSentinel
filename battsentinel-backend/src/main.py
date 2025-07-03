@@ -40,10 +40,9 @@ print(f"DEBUG (main.py): ID del objeto 'db' antes de init_app: {id(db)}")
 # === CONFIGURACIÓN DE SOCKETIO ===
 socketio = SocketIO(app, cors_allowed_origins="https://mcarbono3.github.io", async_mode="eventlet", logger=True, engineio_logger=True) # <-- AÑADIR ESTA LÍNEA
 
-# Importar Blueprints DESPUÉS de db y socketio para evitar problemas de importación circular
-from .routes.battery import battery_bp
-from .routes.system import system_bp
-from .models.user import User # Importa el modelo User si lo usas en main.py
+# Importar Modelos
+from .models.user import User # Importación única y correcta
+from .models.battery import Battery, BatteryData, Alert, AnalysisResult, ThermalImage, MaintenanceRecord
 
 app.register_blueprint(system_bp, url_prefix='/api')
 
@@ -56,8 +55,6 @@ print(f"DEBUG (main.py): ID del objeto 'db' después de init_app: {id(db)}")
 # === PASO 2: Importar modelos y rutas DESPUÉS de que 'db' ha sido inicializada con 'app' ===
 # Esto asegura que los modelos usen la instancia de 'db' que ya está asociada con la aplicación.
 # ¡Asegúrate de que tus modelos y rutas importen 'db' desde este archivo 'main.py' ahora!
-from .models.battery import Battery, BatteryData, Alert, AnalysisResult, ThermalImage, MaintenanceRecord
-from .models.user import User
 from .routes.battery import battery_bp
 from .routes.ai_analysis import ai_bp
 from .routes.digital_twin import twin_bp
