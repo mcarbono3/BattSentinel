@@ -8,9 +8,9 @@ import pandas as pd
 import sys
 import os
 
-from src.main import db
-from src.models.battery import Battery, BatteryData
-from src.services.windows_battery import windows_battery_service
+from ..main import db
+from ..models.battery import Battery, BatteryData
+from ..services.windows_battery import windows_battery_service
 
 ai_bp = Blueprint('ai_analysis', __name__)
 
