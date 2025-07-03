@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from flask import Flask, send_from_directory, jsonify, current_app, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from flask_socketio import SocketIO, emit # <-- AÑADIR ESTA IMPORTACIÓN
 
 # === IMPORTANTE: db se creará e inicializará AQUÍ ===
 
@@ -19,7 +20,8 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16MB max file size
 # === CONFIGURACIÓN DE CORS ===
 # **IMPORTANTE:** Usamos SOLO esta configuración para manejar CORS.
 # Permite CORS para tu frontend específico en todas las rutas bajo /api/
-CORS(app, resources={r"/api/*": {"origins": "https://mcarbono3.github.io"}})
+CORS(app, resources={r"/api/*": {"origins": "https://mcarbono3.github.io"},
+                     r"/*": {"origins": "https://mcarbono3.github.io"}}) #
 # Si en algún momento necesitas permitir CUALQUIER origen para depuración (menos seguro en producción):
 # CORS(app, origins="*")
 # Si solo necesitas habilitar CORS globalmente sin restricciones específicas de ruta:
@@ -34,6 +36,16 @@ db = SQLAlchemy()
 
 print(f"DEBUG (main.py): ID del objeto 'app' antes de init_app: {id(app)}")
 print(f"DEBUG (main.py): ID del objeto 'db' antes de init_app: {id(db)}")
+
+# === CONFIGURACIÓN DE SOCKETIO ===
+socketio = SocketIO(app, cors_allowed_origins="https://mcarbono3.github.io", async_mode="eventlet", logger=True, engineio_logger=True) # <-- AÑADIR ESTA LÍNEA
+
+# Importar Blueprints DESPUÉS de db y socketio para evitar problemas de importación circular
+from src.routes.battery import battery_bp
+from src.routes.system import system_bp
+from src.models.user import User # Importa el modelo User si lo usas en main.py
+
+app.register_blueprint(system_bp, url_prefix='/api')
 
 # Inicializar db con la aplicación
 print("DEBUG (main.py): Llamando a db.init_app(app)...")
@@ -129,4 +141,4 @@ with app.app_context():
 
 if __name__ == '__main__':
     print("DEBUG (main.py): La aplicación se está ejecutando en el bloque __main__.")
-    app.run(debug=True, host='0.0.0.0', port=os.environ.get('PORT', 5000))
+    socketio.run(app, debug=True, host='0.0.0.0', port=os.environ.get('PORT', 5000))
