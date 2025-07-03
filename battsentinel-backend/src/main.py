@@ -5,13 +5,9 @@ import platform
 import subprocess
 from datetime import datetime, timezone
 
-import eventlet
-eventlet.monkey_patch() # <--- ¡AÑADE ESTAS DOS LÍNEAS AQUÍ!
-
 from flask import Flask, send_from_directory, jsonify, current_app, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from flask_socketio import SocketIO, emit # <-- AÑADIR ESTA IMPORTACIÓN
 
 # === IMPORTANTE: db se creará e inicializará AQUÍ ===
 
@@ -39,11 +35,6 @@ db = SQLAlchemy()
 
 print(f"DEBUG (main.py): ID del objeto 'app' antes de init_app: {id(app)}")
 print(f"DEBUG (main.py): ID del objeto 'db' antes de init_app: {id(db)}")
-
-# === CONFIGURACIÓN DE SOCKETIO ===
-socketio = SocketIO(app, cors_allowed_origins="https://mcarbono3.github.io", async_mode="eventlet", logger=True, engineio_logger=True) # <-- AÑADIR ESTA LÍNEA
-
-application = socketio.wsgi_app
 
 # Importar Modelos
 from .models.user import User # Importación única y correcta
