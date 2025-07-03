@@ -18,7 +18,7 @@ import sys
 # Si es necesario, descomenta la siguiente línea para que Python encuentre los módulos
 # sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.main import db, socketio
+from src.main import db
 from src.models.battery import Battery, BatteryData, Alert, AnalysisResult, ThermalImage, MaintenanceRecord # Asegúrate de importar todos los modelos necesarios
 from src.services.windows_battery import windows_battery_service
 
