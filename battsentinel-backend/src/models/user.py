@@ -5,7 +5,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask import current_app # Importar current_app
 
 # === IMPORTANTE: Importa la instancia 'db' desde main.py ===
-from ..main import db
+from scr.main import db
 
 class User(db.Model):
     """Modelo de Usuario Simplificado - Sin autenticación estricta"""
