@@ -43,6 +43,8 @@ print(f"DEBUG (main.py): ID del objeto 'db' antes de init_app: {id(db)}")
 # === CONFIGURACIÓN DE SOCKETIO ===
 socketio = SocketIO(app, cors_allowed_origins="https://mcarbono3.github.io", async_mode="eventlet", logger=True, engineio_logger=True) # <-- AÑADIR ESTA LÍNEA
 
+application = socketio.wsgi_app
+
 # Importar Modelos
 from .models.user import User # Importación única y correcta
 from .models.battery import Battery, BatteryData, Alert, AnalysisResult, ThermalImage, MaintenanceRecord
@@ -140,4 +142,3 @@ with app.app_context():
 if __name__ == '__main__':
     print("DEBUG (main.py): La aplicación se está ejecutando en el bloque __main__.")
     socketio.run(app, debug=True, host='0.0.0.0', port=os.environ.get('PORT', 5000))
-application = socketio.wsgi_app
