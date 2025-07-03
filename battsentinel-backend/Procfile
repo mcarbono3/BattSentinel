@@ -1,1 +1,1 @@
-web: gunicorn battsentinel-backend.src.main:app
+web: gunicorn --worker-class eventlet -w 1 battsentinel-backend.src.main:socketio.wsgi_app
