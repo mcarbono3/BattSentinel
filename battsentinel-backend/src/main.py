@@ -44,8 +44,6 @@ socketio = SocketIO(app, cors_allowed_origins="https://mcarbono3.github.io", asy
 from .models.user import User # Importación única y correcta
 from .models.battery import Battery, BatteryData, Alert, AnalysisResult, ThermalImage, MaintenanceRecord
 
-app.register_blueprint(system_bp, url_prefix='/api')
-
 # Inicializar db con la aplicación
 print("DEBUG (main.py): Llamando a db.init_app(app)...")
 db.init_app(app)
