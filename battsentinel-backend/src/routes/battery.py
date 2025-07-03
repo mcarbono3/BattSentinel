@@ -487,6 +487,44 @@ def get_battery_historical_data(battery_id):
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 # --- FIN DE LA MEJORA PARA FILTRADO DE FECHAS ---
 
+@battery_bp.route('/batteries/<int:battery_id>/historical_data_cleanup', methods=['DELETE'])
+def cleanup_battery_historical_data(battery_id):  
+    try:
+        battery = Battery.query.get(battery_id)
+        if not battery:
+            return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
+
+        # Encontrar el último registro de datos para esta batería
+        latest_data_point = BatteryData.query.filter_by(battery_id=battery_id) \
+                                             .order_by(BatteryData.timestamp.desc()) \
+                                             .first()
+
+        if not latest_data_point:
+            current_app.logger.info(f"No hay datos históricos para limpiar en la batería {battery_id}.")
+            return jsonify({'success': True, 'message': 'No hay datos históricos para limpiar, o solo existe un registro.'}), 200
+        # Eliminar todos los registros EXCEPTO el último
+        # Se construye la consulta para eliminar donde el id no sea el id del último registro
+        deleted_count = BatteryData.query.filter(
+            (BatteryData.battery_id == battery_id) &
+            (BatteryData.id != latest_data_point.id)
+        ).delete(synchronize_session=False) # synchronize_session=False es para evitar advertencias en algunos setups de ORM
+
+        db.session.commit()
+        current_app.logger.info(f"Eliminados {deleted_count} registros históricos para la batería {battery_id}, conservando el último.")
+
+        return jsonify({
+            'success': True,
+            'message': f'Eliminados {deleted_count} registros históricos. El último registro se ha conservado.',
+            'battery_id': battery_id,
+            'remaining_data_point': latest_data_point.to_dict()
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Error al limpiar datos históricos para batería {battery_id}: {e}\n{error_trace}")
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
+
 @battery_bp.route('/batteries/<int:battery_id>/maintenance_records', methods=['POST'])
 def add_maintenance_record(battery_id):
     """Añadir un nuevo registro de mantenimiento para una batería específica."""
