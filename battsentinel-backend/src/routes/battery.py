@@ -18,9 +18,9 @@ import sys
 # Si es necesario, descomenta la siguiente línea para que Python encuentre los módulos
 # sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ..main import db, socketio
-from ..models.battery import Battery, BatteryData, Alert, AnalysisResult, ThermalImage, MaintenanceRecord # Asegúrate de importar todos los modelos necesarios
-from ..services.windows_battery import windows_battery_service
+from src.main import db, socketio
+from src.models.battery import Battery, BatteryData, Alert, AnalysisResult, ThermalImage, MaintenanceRecord # Asegúrate de importar todos los modelos necesarios
+from src.services.windows_battery import windows_battery_service
 
 battery_bp = Blueprint('battery', __name__)
 
@@ -223,8 +223,6 @@ def add_battery_data(battery_id):
 
         db.session.add(new_data)
         db.session.commit()
-
-        socketio.emit('new_battery_data', new_data.to_dict())
         current_app.logger.info(f"Nuevos datos añadidos a la batería {battery_id} y emitidos vía WebSocket.")
         return jsonify({'success': True, 'data': new_data.to_dict()}), 201
     except Exception as e:
