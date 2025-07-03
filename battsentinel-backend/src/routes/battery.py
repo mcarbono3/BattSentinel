@@ -1,5 +1,11 @@
+# src/routes/battery.py
+
 from flask import Blueprint, request, jsonify, current_app, send_file
 from datetime import datetime, timezone
+# Asegúrate de importar 'and_' si planeas combinar múltiples filtros complejos,
+# aunque para este caso chaining .filter() es suficiente.
+# from sqlalchemy import and_ # <-- No es estrictamente necesario para este filtro, pero útil para futuros complejos
+
 import os
 import pandas as pd
 import numpy as np
@@ -84,37 +90,11 @@ def create_battery():
         if not name:
             return jsonify({'success': False, 'error': 'El nombre de la batería es requerido'}), 400
 
-        # Extraer todos los campos esperados del request.json
-        model = data.get('model')
-        manufacturer = data.get('manufacturer')
-        serial_number = data.get('serial_number')
-        full_charge_capacity = data.get('full_charge_capacity') # ¡Campo actualizado!
-        designvoltage = data.get('designvoltage') # ¡Campo actualizado!
-        chemistry = data.get('chemistry') # ¡Campo actualizado! (antes era 'type')
-        installation_date_str = data.get('installation_date')
-        location = data.get('location')
-        status = data.get('status', 'active') # Usar 'active' como default si no se provee
-
-        # Convertir installation_date a objeto datetime, si se provee
-        installation_date = None
-        if installation_date_str:
-            try:
-                installation_date = datetime.fromisoformat(installation_date_str).replace(tzinfo=timezone.utc)
-            except ValueError:
-                return jsonify({'success': False, 'error': 'Formato de fecha de instalación inválido. Use ISO 8601 (YYYY-MM-DDTHH:MM:SSZ).'}), 400
-
-
         new_battery = Battery(
             name=name,
-            model=model,
-            manufacturer=manufacturer,
-            serial_number=serial_number,
-            full_charge_capacity=full_charge_capacity,
-            designvoltage=designvoltage,
-            chemistry=chemistry,
-            installation_date=installation_date,
-            location=location,
-            status=status
+            type=data.get('type'),
+            nominal_voltage=data.get('nominal_voltage'),
+            capacity_ah=data.get('capacity_ah')
         )
         db.session.add(new_battery)
         db.session.commit()
@@ -223,7 +203,7 @@ def add_battery_data(battery_id):
             temperature=data.get('temperature'),
             soc=data.get('soc'),
             soh=data.get('soh'),
-            cycles=data.get('cycles'),   
+            cycles=data.get('cycles'),
             power=data.get('power'), # Corrección: usa data.get()            
             # --- CAMPOS AÑADIDOS / MEJORADOS ---
             energy_rate=data.get('energy_rate'), 
@@ -231,7 +211,7 @@ def add_battery_data(battery_id):
             rul_days=data.get('rul_days'), 
             efficiency=data.get('efficiency'), 
             is_plugged=data.get('is_plugged'), 
-            time_left=data.get('time_left'), 
+            time_left=data.get('time_left'),       
         )
 
         # Asignar 'status' por separado, de forma defensiva
@@ -240,7 +220,7 @@ def add_battery_data(battery_id):
         # Si por alguna razón el cliente todavía envía 'batterystatus', lo mapeamos
         elif 'batterystatus' in data and data['batterystatus'] is not None:
             new_data.status = str(data['batterystatus']) # Convertir a string para el campo db.String
-            
+
         db.session.add(new_data)
         db.session.commit()
         current_app.logger.info(f"Nuevos datos añadidos a la batería {battery_id}.")
@@ -455,21 +435,57 @@ def get_battery_maintenance_records(battery_id):
     current_app.logger.info(f"Solicitud de registros de mantenimiento para batería {battery_id}. Devolviendo lista vacía (funcionalidad omitida).")
     return jsonify({'success': True, 'data': [], 'battery_id': battery_id})
 
+# --- INICIO DE LA MEJORA PARA FILTRADO DE FECHAS ---
 @battery_bp.route('/batteries/<int:battery_id>/historical_data', methods=['GET'])
 def get_battery_historical_data(battery_id):
     """
-    Obtener datos históricos para una batería específica.
-    Devuelve datos de la tabla BatteryData.
+    Obtener datos históricos para una batería específica,
+    opcionalmente filtrados por un rango de fechas (startDate y endDate).
     """
     try:
-        historical_data = BatteryData.query.filter_by(battery_id=battery_id).order_by(BatteryData.timestamp.asc()).all()
-        data_list = [data.to_dict() for data in historical_data]
-        current_app.logger.debug(f"Obtenidos {len(data_list)} puntos de datos históricos para batería {battery_id}.")
+        # 1. Obtener la batería (si no existe, retornar error)
+        battery = Battery.query.get(battery_id)
+        if not battery:
+            return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
+
+        # 2. Obtener los parámetros de fecha de la URL
+        start_date_str = request.args.get('startDate')
+        end_date_str = request.args.get('endDate')
+
+        # 3. Construir la consulta base
+        query = BatteryData.query.filter_by(battery_id=battery_id)
+
+        # 4. Aplicar filtros de fecha si están presentes
+        if start_date_str:
+            try:
+                # Convertir la fecha string (yyyy-MM-dd) a objeto datetime
+                # Asegurarse de que sea aware de la zona horaria UTC para comparación consistente
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                query = query.filter(BatteryData.timestamp >= start_date)
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Formato de startDate inválido. Usar YYYY-MM-DD'}), 400
+
+        if end_date_str:
+            try:
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                # IMPORTANTE: El frontend ajusta el endDate sumándole un día.
+                # Para incluir todo el día final, filtraremos *antes* del inicio del día siguiente.
+                query = query.filter(BatteryData.timestamp < end_date)
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Formato de endDate inválido. Usar YYYY-MM-DD'}), 400
+
+        # 5. Ordenar los resultados y ejecutarlos
+        filtered_data_points = query.order_by(BatteryData.timestamp.asc()).all()
+        data_list = [data.to_dict() for data in filtered_data_points]
+
+        current_app.logger.debug(f"Obtenidos {len(data_list)} puntos de datos históricos para batería {battery_id} con filtros.")
         return jsonify({'success': True, 'data': data_list, 'battery_id': battery_id})
     except Exception as e:
+        db.session.rollback() # En caso de error en la DB, aunque no debería ser necesario aquí
         error_trace = traceback.format_exc()
         current_app.logger.error(f"Error al obtener datos históricos para batería {battery_id}: {e}\n{error_trace}")
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
+# --- FIN DE LA MEJORA PARA FILTRADO DE FECHAS ---
 
 @battery_bp.route('/batteries/<int:battery_id>/maintenance_records', methods=['POST'])
 def add_maintenance_record(battery_id):
