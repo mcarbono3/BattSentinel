@@ -5,6 +5,9 @@ import platform
 import subprocess
 from datetime import datetime, timezone
 
+import eventlet
+eventlet.monkey_patch() # <--- ¡AÑADE ESTAS DOS LÍNEAS AQUÍ!
+
 from flask import Flask, send_from_directory, jsonify, current_app, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
