@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.orm import relationship
 
-from src.main import db
+from ..main import db
 
 class Battery(db.Model):
     """Modelo de Batería"""
