@@ -93,8 +93,8 @@ def create_battery():
         new_battery = Battery(
             name=name,
             chemistry=data.get('chemistry'),
-            nominal_voltage=data.get('nominal_voltage'),
-            capacity_ah=data.get('capacity_ah')
+            designvoltage=data.get('designvoltage'),
+            full_charge_capacity=data.get('full_charge_capacity')
         )
         db.session.add(new_battery)
         db.session.commit()
