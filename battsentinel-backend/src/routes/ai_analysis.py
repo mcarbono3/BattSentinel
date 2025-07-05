@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone # Importar timezone
 import json
 
+from flask_cors import cross_origin
 # Importaciones locales
 import sys
 import os
@@ -228,7 +229,7 @@ def classify_anomaly_severity(anomalies, df):
     
     return classified
 
-@ai_bp.route('/api/analyze/<int:battery_id>', methods=['POST'])
+@ai_bp.route('/analyze/<int:battery_id>', methods=['POST'])
 def analyze_battery(battery_id):
     """Realizar análisis completo de IA en una batería - Sin autenticación"""
     try:
@@ -325,7 +326,7 @@ def analyze_battery(battery_id):
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@ai_bp.route('/api/fault-detection/<int:battery_id>', methods=['POST'])
+@ai_bp.route('/fault-detection/<int:battery_id>', methods=['POST'])
 def detect_faults(battery_id):
     """Detectar fallas específicas en una batería - Sin autenticación"""
     try:
@@ -382,7 +383,7 @@ def detect_faults(battery_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@ai_bp.route('/api/health-prediction/<int:battery_id>', methods=['POST'])
+@ai_bp.route('/health-prediction/<int:battery_id>', methods=['POST'])
 def predict_health(battery_id):
     """Predecir estado de salud y vida útil restante - Sin autenticación"""
     try:
@@ -437,7 +438,7 @@ def predict_health(battery_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@ai_bp.route('/api/anomaly-detection/<int:battery_id>', methods=['POST'])
+@ai_bp.route('/anomaly-detection/<int:battery_id>', methods=['POST'])
 def detect_anomalies(battery_id):
     """Detectar anomalías en tiempo real - Sin autenticación"""
     try:
@@ -476,7 +477,7 @@ def detect_anomalies(battery_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@ai_bp.route('/api/analyses/<int:battery_id>', methods=['GET'])
+@ai_bp.route('/analyses/<int:battery_id>', methods=['GET'])
 def get_analyses_history(battery_id):
     """Obtener historial de análisis de una batería - Sin autenticación"""
     try:
@@ -502,7 +503,7 @@ def get_analyses_history(battery_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@ai_bp.route('/api/model-info', methods=['GET'])
+@ai_bp.route('/model-info', methods=['GET'])
 def get_model_info():
     """Obtener información sobre los modelos de IA disponibles - Sin autenticación"""
     try:
