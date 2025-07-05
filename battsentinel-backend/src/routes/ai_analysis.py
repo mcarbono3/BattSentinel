@@ -16,6 +16,13 @@ ai_bp = Blueprint('ai_analysis', __name__)
 
 @ai_bp.route('/analyze/<int:battery_id>', methods=['POST', 'OPTIONS'])
 def analyze_battery(battery_id):
+    if request.method == 'OPTIONS':
+        response = jsonify({})
+        response.headers.add('Access-Control-Allow-Origin', 'https://mcarbono3.github.io')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization') # Añade Authorization si usas tokens
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS') # Permite ambos métodos
+        response.headers.add('Access-Control-Max-Age', '86400') # Cache preflight por 24 horas
+        return response
     """Realizar análisis de IA en una batería - Sin autenticación"""
     try:
         with current_app.app_context():
