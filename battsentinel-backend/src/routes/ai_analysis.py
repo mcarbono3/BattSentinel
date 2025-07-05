@@ -1,16 +1,17 @@
 # src/routes/ai_analysis.py
 
-from flask import Blueprint, request, jsonify, current_app # Asegúrate de importar current_app
+from flask import Blueprint, request, jsonify, current_app
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta, timezone # Asegúrate de importar timezone
+from datetime import datetime, timedelta, timezone
 import json
 from src.models.battery import db, Battery, BatteryData, BatteryAnalysis
-from src.services.ai_models import FaultDetectionModel, HealthPredictionModel, XAIExplainer # Asumiendo que estas clases están bien definidas
+# Importa tus modelos de IA y explicabilidad
+from src.services.ai_models import FaultDetectionModel, HealthPredictionModel, XAIExplainer
 
 ai_bp = Blueprint('ai', __name__)
 
-# --- Funciones auxiliares para análisis de IA (MOVIDAS AL INICIO) ---
+# --- Funciones auxiliares para datos de ejemplo y lógica de soporte ---
 
 def generate_sample_analysis_data(battery_id, count=100):
     """Generar datos de ejemplo para análisis"""
@@ -73,179 +74,149 @@ def generate_sample_analyses_history(battery_id):
     
     return analyses
 
-def perform_fault_detection(df):
-    """Realizar detección de fallas básica"""
-    try:
-        if df.empty:
-            return {'faults_detected': [], 'status': 'no_data'}
-        
-        faults = []
-        
-        # Verificar voltaje
-        if 'voltage' in df.columns:
-            avg_voltage = df['voltage'].mean()
-            if avg_voltage < 11.5:
-                faults.append({
-                    'type': 'low_voltage',
-                    'severity': 'high',
-                    'description': f'Voltaje promedio bajo: {avg_voltage:.2f}V',
-                    'recommendation': 'Verificar sistema de carga'
-                })
-            elif avg_voltage > 13.5:
-                faults.append({
-                    'type': 'high_voltage',
-                    'severity': 'medium',
-                    'description': f'Voltaje promedio alto: {avg_voltage:.2f}V',
-                    'recommendation': 'Verificar regulador de voltaje'
-                })
-        
-        # Verificar temperatura
-        if 'temperature' in df.columns:
-            avg_temp = df['temperature'].mean()
-            if avg_temp > 45:
-                faults.append({
-                    'type': 'overheating',
-                    'severity': 'high',
-                    'description': f'Temperatura elevada: {avg_temp:.1f}°C',
-                    'recommendation': 'Mejorar ventilación y verificar carga'
-                })
-            elif avg_temp < 0:
-                faults.append({
-                    'type': 'low_temperature',
-                    'severity': 'medium',
-                    'description': f'Temperatura baja: {avg_temp:.1f}°C',
-                    'recommendation': 'Considerar calentamiento en ambiente frío'
-                })
-        
-        # Verificar SOH
-        if 'soh' in df.columns:
-            avg_soh = df['soh'].mean()
-            if avg_soh < 70:
-                faults.append({
-                    'type': 'degraded_health',
-                    'severity': 'high',
-                    'description': f'Estado de salud degradado: {avg_soh:.1f}%',
-                    'recommendation': 'Considerar reemplazo de batería'
-                })
-            elif avg_soh < 80:
-                faults.append({
-                    'type': 'declining_health',
-                    'severity': 'medium',
-                    'description': f'Estado de salud en declive: {avg_soh:.1f}%',
-                    'recommendation': 'Monitoreo frecuente y mantenimiento preventivo'
-                })
-        
-        return {
-            'faults_detected': faults,
-            'total_faults': len(faults),
-            'status': 'completed',
-            'analysis_timestamp': datetime.now(timezone.utc).isoformat()
-        }
-        
-    except Exception as e:
-        current_app.logger.error(f"Error en perform_fault_detection: {e}")
-        return {
-            'faults_detected': [],
-            'status': 'error',
-            'error': str(e)
-        }
+def get_performance_grade(score):
+    """Obtener calificación de rendimiento"""
+    if score >= 90:
+        return 'A'
+    elif score >= 80:
+        return 'B'
+    elif score >= 70:
+        return 'C'
+    elif score >= 60:
+        return 'D'
+    else:
+        return 'F'
 
-def perform_health_prediction(df, prediction_horizon=30):
-    """Realizar predicción de salud básica"""
-    try:
-        if df.empty:
-            return {'prediction': None, 'status': 'no_data'}
+def _detect_anomalies_statistical(df, columns):
+    """
+    Detectar anomalías en columnas especificadas usando Z-score e IQR.
+    Retorna una lista de diccionarios con las anomalías detectadas.
+    """
+    anomalies = []
+    
+    for col in columns:
+        if col in df.columns and not df[col].empty:
+            values = pd.to_numeric(df[col], errors='coerce').dropna() # Asegurar que los valores sean numéricos y manejar NaN
+            
+            if len(values) < 2: # Necesita al menos 2 puntos para calcular STD/IQR
+                continue
+
+            # Detección basada en Z-score
+            mean = values.mean()
+            std_dev = values.std()
+            
+            if std_dev == 0: # Evitar división por cero si todos los valores son iguales
+                z_scores = pd.Series(0, index=values.index)
+            else:
+                z_scores = (values - mean) / std_dev
+            
+            z_anomalies = values[np.abs(z_scores) > 3].index.tolist() # Z-score > 3 como umbral
+            
+            # Detección basada en IQR (Interquartile Range)
+            Q1 = values.quantile(0.25)
+            Q3 = values.quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            iqr_anomalies = values[(values < lower_bound) | (values > upper_bound)].index.tolist()
+            
+            # Combinar y eliminar duplicados
+            combined_anomalies_indices = list(set(z_anomalies + iqr_anomalies))
+            
+            for idx in combined_anomalies_indices:
+                # Asegúrate de que el índice exista en el DataFrame original y no sea NaN
+                if idx in df.index and pd.notna(df.loc[idx, col]):
+                    anomaly = {
+                        'index': int(idx),
+                        'parameter': col,
+                        'value': float(df.loc[idx, col]),
+                        'timestamp': df.loc[idx, 'timestamp'] if 'timestamp' in df.columns else None,
+                        'z_score': float(z_scores.loc[idx]) if idx in z_scores.index else None,
+                        'method': 'statistical'
+                    }
+                    anomalies.append(anomaly)
+    
+    return anomalies
+
+def _classify_anomaly_severity(anomalies, df):
+    """Clasificar severidad de anomalías detectadas."""
+    classified = []
+    
+    for anomaly in anomalies:
+        severity = 'low'
         
-        # Análisis de tendencias básico
-        current_soh = df['soh'].iloc[0] if 'soh' in df.columns and not df['soh'].empty else 85.0
+        param = anomaly['parameter']
+        value = anomaly['value']
         
-        # Simular degradación basada en ciclos y tiempo
-        cycles = df['cycles'].iloc[0] if 'cycles' in df.columns and not df['cycles'].empty else 150
-        degradation_rate = 0.02 # 2% por cada 100 ciclos
+        # Obtener valores para contexto de severidad (si la columna existe y no está vacía)
+        if param in df.columns and not df[param].empty:
+            values = pd.to_numeric(df[param], errors='coerce').dropna()
+            if not values.empty:
+                mean = values.mean()
+                std_dev = values.std()
+                if std_dev != 0:
+                    z_score = abs((value - mean) / std_dev)
+                else:
+                    z_score = 0 # No hay desviación si std_dev es 0
+
+                if param == 'temperature':
+                    if z_score > 5 or value > 60 or value < -20: # Umbrales específicos para temperatura
+                        severity = 'critical'
+                    elif z_score > 3.5 or value > 45 or value < 0:
+                        severity = 'high'
+                    elif z_score > 2:
+                        severity = 'medium'
+                elif param == 'voltage':
+                    if z_score > 4 or value < 10.0 or value > 15.0: # Umbrales específicos para voltaje
+                        severity = 'critical'
+                    elif z_score > 3 or value < 11.0 or value > 14.0:
+                        severity = 'high'
+                    elif z_score > 2:
+                        severity = 'medium'
+                elif param == 'current':
+                    if z_score > 4 or abs(value) > 100: # Umbrales para corriente
+                        severity = 'critical'
+                    elif z_score > 3 or abs(value) > 50:
+                        severity = 'high'
+                    elif z_score > 2:
+                        severity = 'medium'
+                elif param == 'soh':
+                    if value < 60: # SOH muy bajo
+                        severity = 'critical'
+                    elif value < 75:
+                        severity = 'high'
+                    elif value < 85:
+                        severity = 'medium'
+                else: # Default para otros parámetros si no hay reglas específicas
+                    if z_score > 3.5:
+                        severity = 'high'
+                    elif z_score > 2:
+                        severity = 'medium'
         
-        # Predicción simple
-        predicted_soh = max(50, current_soh - (degradation_rate * prediction_horizon / 30))
-        
-        # Calcular RUL (Remaining Useful Life)
-        rul_cycles = max(0, int((current_soh - 70) / degradation_rate * 100))
-        rul_days = max(0, int(rul_cycles / 2)) # Asumiendo 2 ciclos por día
-        
-        prediction_data = {
-            'current_soh': float(current_soh),
-            'predicted_soh': float(predicted_soh),
-            'prediction_horizon_days': prediction_horizon,
-            'degradation_rate_per_month': float(degradation_rate * 30),
-            'remaining_useful_life': {
-                'cycles': rul_cycles,
-                'days': rul_days,
-                'months': max(0, int(rul_days / 30))
-            },
-            'confidence_level': 0.75,
-            'prediction_timestamp': datetime.now(timezone.utc).isoformat()
-        }
-        
-        return {
-            'prediction': prediction_data,
-            'status': 'completed'
-        }
-        
-    except Exception as e:
-        current_app.logger.error(f"Error en perform_health_prediction: {e}")
-        return {
-            'prediction': None,
-            'status': 'error',
-            'error': str(e)
-        }
+        anomaly['severity'] = severity
+        classified.append(anomaly)
+    
+    return classified
+
 
 def perform_anomaly_detection(df):
-    """Realizar detección de anomalías básica"""
+    """
+    Realizar detección de anomalías usando métodos estadísticos.
+    Esta función utiliza las helpers _detect_anomalies_statistical y _classify_anomaly_severity.
+    """
     try:
         if df.empty:
             return {'anomalies': [], 'status': 'no_data'}
         
-        anomalies = []
+        # Columnas a analizar para anomalías
+        columns_to_analyze = ['voltage', 'current', 'temperature', 'soh', 'soc']
         
-        # Detectar anomalías en voltaje
-        if 'voltage' in df.columns and not df['voltage'].empty:
-            voltage_mean = df['voltage'].mean()
-            voltage_std = df['voltage'].std()
-            if voltage_std == 0: # Evitar división por cero si todos los valores son iguales
-                voltage_threshold = 0
-            else:
-                voltage_threshold = voltage_std * 2
-            
-            voltage_anomalies = df[abs(df['voltage'] - voltage_mean) > voltage_threshold]
-            for _, row in voltage_anomalies.iterrows():
-                anomalies.append({
-                    'type': 'voltage_anomaly',
-                    'timestamp': row.get('timestamp', ''),
-                    'value': float(row['voltage']),
-                    'expected_range': [float(voltage_mean - voltage_threshold), float(voltage_mean + voltage_threshold)],
-                    'severity': 'medium'
-                })
-        
-        # Detectar anomalías en temperatura
-        if 'temperature' in df.columns and not df['temperature'].empty:
-            temp_mean = df['temperature'].mean()
-            temp_std = df['temperature'].std()
-            if temp_std == 0: # Evitar división por cero si todos los valores son iguales
-                temp_threshold = 0
-            else:
-                temp_threshold = temp_std * 2
-            
-            temp_anomalies = df[abs(df['temperature'] - temp_mean) > temp_threshold]
-            for _, row in temp_anomalies.iterrows():
-                anomalies.append({
-                    'type': 'temperature_anomaly',
-                    'timestamp': row.get('timestamp', ''),
-                    'value': float(row['temperature']),
-                    'expected_range': [float(temp_mean - temp_threshold), float(temp_mean + temp_threshold)],
-                    'severity': 'high' if abs(row['temperature'] - temp_mean) > temp_threshold * 1.5 else 'medium'
-                })
+        detected_anomalies = _detect_anomalies_statistical(df, columns_to_analyze)
+        classified_anomalies = _classify_anomaly_severity(detected_anomalies, df)
         
         return {
-            'anomalies': anomalies[:10], # Limitar a 10 anomalías más recientes
-            'total_anomalies': len(anomalies),
+            'anomalies': classified_anomalies[:20], # Limitar a X anomalías para la respuesta
+            'total_anomalies': len(classified_anomalies),
             'status': 'completed',
             'analysis_timestamp': datetime.now(timezone.utc).isoformat()
         }
@@ -266,31 +237,43 @@ def perform_performance_analysis(df):
         
         metrics = {}
         
-        # Eficiencia energética
+        # Eficiencia energética (Power)
         if 'voltage' in df.columns and 'current' in df.columns and not df[['voltage', 'current']].empty:
-            power = df['voltage'] * df['current']
-            metrics['average_power'] = float(power.mean()) if not power.empty else 0.0
-            metrics['power_efficiency'] = min(100, float(power.mean() / 50 * 100)) if not power.empty else 0.0 # Asumiendo 50W como referencia
-        
+            # Asegúrate de que las columnas sean numéricas
+            voltage_numeric = pd.to_numeric(df['voltage'], errors='coerce')
+            current_numeric = pd.to_numeric(df['current'], errors='coerce')
+            power = (voltage_numeric * current_numeric).dropna() # Calcula la potencia y elimina NaN
+            
+            if not power.empty:
+                metrics['average_power'] = float(power.mean())
+                # Asumiendo 50W como referencia para eficiencia, escala a 100%
+                metrics['power_efficiency'] = min(100.0, float(power.mean() / 50 * 100))
+            else:
+                metrics['average_power'] = 0.0
+                metrics['power_efficiency'] = 0.0
+
         # Estabilidad de voltaje
         if 'voltage' in df.columns and not df['voltage'].empty:
-            voltage_mean = df['voltage'].mean()
-            voltage_std = df['voltage'].std()
-            if voltage_mean == 0: # Evitar división por cero
-                voltage_stability = 0
+            voltage_numeric = pd.to_numeric(df['voltage'], errors='coerce').dropna()
+            if not voltage_numeric.empty and voltage_numeric.mean() != 0:
+                voltage_stability = 100 - (voltage_numeric.std() / voltage_numeric.mean() * 100)
+                metrics['voltage_stability'] = max(0.0, float(voltage_stability))
             else:
-                voltage_stability = 100 - (voltage_std / voltage_mean * 100)
-            metrics['voltage_stability'] = max(0, float(voltage_stability))
-        
+                metrics['voltage_stability'] = 100.0 # Estable si no hay variacion o datos
+
         # Consistencia de temperatura
         if 'temperature' in df.columns and not df['temperature'].empty:
-            temp_std = df['temperature'].std()
-            temp_consistency = 100 - (temp_std / 10 * 100) # 10°C como rango aceptable
-            metrics['temperature_consistency'] = max(0, float(temp_consistency))
+            temperature_numeric = pd.to_numeric(df['temperature'], errors='coerce').dropna()
+            if not temperature_numeric.empty:
+                # Asumiendo que una desviación estándar de 10°C es el 0% de consistencia
+                temp_consistency = 100 - (temperature_numeric.std() / 10 * 100)
+                metrics['temperature_consistency'] = max(0.0, float(temp_consistency))
+            else:
+                metrics['temperature_consistency'] = 100.0 # Consistente si no hay variacion o datos
         
         # Score general de rendimiento
         performance_scores = [v for v in metrics.values() if isinstance(v, (int, float))]
-        overall_performance = sum(performance_scores) / len(performance_scores) if performance_scores else 0
+        overall_performance = sum(performance_scores) / len(performance_scores) if performance_scores else 0.0
         
         return {
             'performance_metrics': metrics,
@@ -308,19 +291,6 @@ def perform_performance_analysis(df):
             'error': str(e)
         }
 
-def get_performance_grade(score):
-    """Obtener calificación de rendimiento"""
-    if score >= 90:
-        return 'A'
-    elif score >= 80:
-        return 'B'
-    elif score >= 70:
-        return 'C'
-    elif score >= 60:
-        return 'D'
-    else:
-        return 'F'
-
 # --- Rutas de la API ---
 
 @ai_bp.route('/analyze/<int:battery_id>', methods=['POST'])
@@ -330,40 +300,64 @@ def analyze_battery(battery_id):
         battery = Battery.query.get_or_404(battery_id)
         
         data = request.get_json() or {}
-        analysis_types = data.get('analysis_types', ['fault_detection', 'health_prediction'])
+        analysis_types = data.get('analysis_types', ['fault_detection', 'health_prediction', 'anomaly_detection', 'performance_analysis'])
         time_window = data.get('time_window_hours', 24) # Últimas 24 horas por defecto
         
         # Obtener datos históricos para análisis
+        # Filtrar por ventana de tiempo para eficiencia
         historical_data = BatteryData.query.filter(
             BatteryData.battery_id == battery_id,
             BatteryData.timestamp >= (datetime.now(timezone.utc) - timedelta(hours=time_window))
-        ).order_by(BatteryData.timestamp.desc()).limit(200).all()
+        ).order_by(BatteryData.timestamp.desc()).limit(500).all() # Aumentado límite para más datos
         
-        if len(historical_data) < 10:
-            # Generar datos de ejemplo si no hay suficientes
-            # current_app.logger.warning(f"Datos insuficientes para batería {battery_id}, generando datos de ejemplo.")
-            df = pd.DataFrame(generate_sample_analysis_data(battery_id, 100))
+        df = pd.DataFrame() # Inicializa un DataFrame vacío por si acaso
+        if not historical_data or len(historical_data) < 10:
+            current_app.logger.warning(f"Datos insuficientes para batería {battery_id}, generando datos de ejemplo para análisis completo.")
+            df = pd.DataFrame(generate_sample_analysis_data(battery_id, 100)) # Generar un mínimo de datos
         else:
             df = pd.DataFrame([point.to_dict() for point in historical_data])
 
         if df.empty:
+            current_app.logger.error(f"DataFrame vacío incluso después de intentar cargar/generar datos para batería {battery_id}.")
             return jsonify({
                 'success': False,
                 'error': 'No data available for analysis, even with sample data generation.'
             }), 400
         
-        # Realizar análisis según los tipos solicitados
+        # Asegurarse de que 'timestamp' sea un tipo de dato correcto para operaciones
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.sort_values(by='timestamp').reset_index(drop=True) # Ordenar por tiempo ascendente para análisis de series
+
         analysis_results = {}
         
         if 'fault_detection' in analysis_types:
-            analysis_results['fault_detection'] = perform_fault_detection(df)
-        
+            try:
+                fault_model = FaultDetectionModel() # Instancia tu modelo de detección de fallas
+                fault_result = fault_model.analyze(df) # Llama al método de análisis de tu modelo
+                analysis_results['fault_detection'] = fault_result
+            except Exception as e:
+                current_app.logger.error(f"Error al ejecutar FaultDetectionModel para batería {battery_id}: {e}")
+                analysis_results['fault_detection'] = {'status': 'error', 'error': str(e)}
+            
         if 'health_prediction' in analysis_types:
-            analysis_results['health_prediction'] = perform_health_prediction(df)
+            try:
+                health_model = HealthPredictionModel() # Instancia tu modelo de predicción de salud
+                health_prediction_result = health_model.analyze(df) # Llama al método de análisis de tu modelo
+                
+                # Integrar la explicabilidad
+                explainer = XAIExplainer()
+                explanation = explainer.explain_health_prediction(df, health_prediction_result)
+                health_prediction_result['explanation'] = explanation
+                
+                analysis_results['health_prediction'] = health_prediction_result
+            except Exception as e:
+                current_app.logger.error(f"Error al ejecutar HealthPredictionModel/XAIExplainer para batería {battery_id}: {e}")
+                analysis_results['health_prediction'] = {'status': 'error', 'error': str(e)}
         
         if 'anomaly_detection' in analysis_types:
             analysis_results['anomaly_detection'] = perform_anomaly_detection(df)
-        
+            
         if 'performance_analysis' in analysis_types:
             analysis_results['performance_analysis'] = perform_performance_analysis(df)
         
@@ -379,24 +373,21 @@ def analyze_battery(battery_id):
         })
         
     except Exception as e:
-        current_app.logger.error(f"Error al realizar el análisis completo de IA para batería {battery_id}: {e}")
+        current_app.logger.error(f"Error general en analyze_battery para batería {battery_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ai_bp.route('/api/ai/detect-faults/<int:battery_id>', methods=['POST'])
 def detect_faults(battery_id):
     """Detectar fallas en la batería usando IA - Sin autenticación"""
     try:
-        # No es necesario current_app.app_context() aquí si db y Battery son accesibles globalmente
-        # con la configuración de Flask/SQLAlchemy. Se usa para operaciones fuera de un request context.
-        # Si tienes problemas, considera mover esta ruta a la misma función 'analyze_battery'
-        # o asegúrate que tu app esté configurada para empujar el context.
         battery = Battery.query.get_or_404(battery_id)
         
-        # Obtener datos recientes
         recent_data = BatteryData.query.filter_by(battery_id=battery_id)\
-            .order_by(BatteryData.timestamp.desc()).limit(50).all()
-        
-        if not recent_data: # Manejo de caso sin datos
+            .order_by(BatteryData.timestamp.desc()).limit(100).all() # Mayor límite para más datos
+
+        df = pd.DataFrame()
+        if not recent_data:
+            current_app.logger.warning(f"No hay datos recientes para batería {battery_id}, generando datos de ejemplo para detección de fallas.")
             df = pd.DataFrame(generate_sample_analysis_data(battery_id, 50))
         else:
             df = pd.DataFrame([point.to_dict() for point in recent_data])
@@ -404,16 +395,24 @@ def detect_faults(battery_id):
         if df.empty:
             return jsonify({'success': False, 'error': 'No data available for fault detection.'}), 400
         
-        # Realizar detección de fallas
-        fault_results = perform_fault_detection(df)
-        
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.sort_values(by='timestamp').reset_index(drop=True)
+
+        try:
+            fault_model = FaultDetectionModel()
+            fault_results = fault_model.analyze(df)
+        except Exception as e:
+            current_app.logger.error(f"Error al ejecutar FaultDetectionModel en detect_faults para batería {battery_id}: {e}")
+            fault_results = {'status': 'error', 'error': str(e)}
+
         return jsonify({
             'success': True,
             'data': fault_results
         })
             
     except Exception as e:
-        current_app.logger.error(f"Error al detectar fallas para batería {battery_id}: {e}")
+        current_app.logger.error(f"Error general en detect_faults para batería {battery_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ai_bp.route('/api/ai/predict-health/<int:battery_id>', methods=['POST'])
@@ -425,11 +424,12 @@ def predict_health(battery_id):
         data = request.get_json() or {}
         prediction_horizon = data.get('prediction_horizon', 30) # días
         
-        # Obtener datos históricos
         historical_data = BatteryData.query.filter_by(battery_id=battery_id)\
-            .order_by(BatteryData.timestamp.desc()).limit(200).all()
-        
-        if not historical_data: # Manejo de caso sin datos
+            .order_by(BatteryData.timestamp.desc()).limit(300).all() # Mayor límite
+
+        df = pd.DataFrame()
+        if not historical_data:
+            current_app.logger.warning(f"No hay datos históricos para batería {battery_id}, generando datos de ejemplo para predicción de salud.")
             df = pd.DataFrame(generate_sample_analysis_data(battery_id, 200))
         else:
             df = pd.DataFrame([point.to_dict() for point in historical_data])
@@ -437,8 +437,22 @@ def predict_health(battery_id):
         if df.empty:
             return jsonify({'success': False, 'error': 'No data available for health prediction.'}), 400
         
-        # Realizar predicción de salud
-        health_prediction = perform_health_prediction(df, prediction_horizon)
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.sort_values(by='timestamp').reset_index(drop=True)
+
+        try:
+            health_model = HealthPredictionModel()
+            health_prediction = health_model.analyze(df, prediction_horizon=prediction_horizon) # Pasa el horizonte si tu modelo lo usa
+            
+            # Integrar la explicabilidad
+            explainer = XAIExplainer()
+            explanation = explainer.explain_health_prediction(df, health_prediction)
+            health_prediction['explanation'] = explanation
+
+        except Exception as e:
+            current_app.logger.error(f"Error al ejecutar HealthPredictionModel/XAIExplainer en predict_health para batería {battery_id}: {e}")
+            health_prediction = {'status': 'error', 'error': str(e)}
         
         return jsonify({
             'success': True,
@@ -446,7 +460,7 @@ def predict_health(battery_id):
         })
             
     except Exception as e:
-        current_app.logger.error(f"Error al predecir la salud para batería {battery_id}: {e}")
+        current_app.logger.error(f"Error general en predict_health para batería {battery_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ai_bp.route('/api/ai/detect-anomalies/<int:battery_id>', methods=['POST'])
@@ -455,11 +469,12 @@ def detect_anomalies(battery_id):
     try:
         battery = Battery.query.get_or_404(battery_id)
         
-        # Obtener datos recientes
         recent_data = BatteryData.query.filter_by(battery_id=battery_id)\
-            .order_by(BatteryData.timestamp.desc()).limit(100).all()
-        
-        if not recent_data: # Manejo de caso sin datos
+            .order_by(BatteryData.timestamp.desc()).limit(150).all() # Mayor límite
+
+        df = pd.DataFrame()
+        if not recent_data:
+            current_app.logger.warning(f"No hay datos recientes para batería {battery_id}, generando datos de ejemplo para detección de anomalías.")
             df = pd.DataFrame(generate_sample_analysis_data(battery_id, 100))
         else:
             df = pd.DataFrame([point.to_dict() for point in recent_data])
@@ -467,8 +482,11 @@ def detect_anomalies(battery_id):
         if df.empty:
             return jsonify({'success': False, 'error': 'No data available for anomaly detection.'}), 400
         
-        # Realizar detección de anomalías
-        anomaly_results = perform_anomaly_detection(df)
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.sort_values(by='timestamp').reset_index(drop=True)
+
+        anomaly_results = perform_anomaly_detection(df) # Usa la función auxiliar avanzada
         
         return jsonify({
             'success': True,
@@ -476,7 +494,7 @@ def detect_anomalies(battery_id):
         })
             
     except Exception as e:
-        current_app.logger.error(f"Error al detectar anomalías para batería {battery_id}: {e}")
+        current_app.logger.error(f"Error general en detect_anomalies para batería {battery_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ai_bp.route('/api/ai/analyses-history/<int:battery_id>', methods=['GET'])
@@ -485,8 +503,8 @@ def get_analyses_history(battery_id):
     try:
         battery = Battery.query.get_or_404(battery_id)
         
-        # Simular historial de análisis
-        analyses_history = generate_sample_analyses_history(battery_id) # Usamos la función auxiliar
+        # Simular historial de análisis (esto es siempre con datos de ejemplo ya que no hay una tabla real de historial de análisis)
+        analyses_history = generate_sample_analyses_history(battery_id)
         
         return jsonify({
             'success': True,
@@ -494,5 +512,5 @@ def get_analyses_history(battery_id):
         })
             
     except Exception as e:
-        current_app.logger.error(f"Error al obtener historial de análisis para batería {battery_id}: {e}")
+        current_app.logger.error(f"Error general en get_analyses_history para batería {battery_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
