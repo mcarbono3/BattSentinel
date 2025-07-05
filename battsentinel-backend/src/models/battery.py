@@ -29,7 +29,7 @@ class Battery(db.Model):
     alerts = relationship('Alert', backref='battery', lazy=True, cascade='all, delete-orphan')
     
     def to_dict(self):
-	# 1. Inicializar el diccionario con los campos básicos de la batería
+        # 1. Inicializar el diccionario con los campos básicos de la batería
         data = {
             'id': self.id,
             'name': self.name,
@@ -48,9 +48,9 @@ class Battery(db.Model):
 
         # 2. LÓGICA PARA OBTENER EL ÚLTIMO PUNTO DE DATOS
         latest_data_point = db.session.query(BatteryData) \
-                            .filter(BatteryData.battery_id == self.id) \
-                            .order_by(BatteryData.timestamp.desc()) \
-                            .first()
+                                .filter(BatteryData.battery_id == self.id) \
+                                .order_by(BatteryData.timestamp.desc()) \
+                                .first()
         # 3. Añadir solo los campos deseados de BatteryData al diccionario 'data'
         if latest_data_point:
             data['soc'] = latest_data_point.soc
@@ -99,7 +99,7 @@ class BatteryData(db.Model):
 
     # --- ¡NUEVOS CAMPOS AÑADIDOS DESDE TUS DATOS DE MONITOREO! ---
     estimatedchargeremaining = Column(Float, nullable=True)
-    estimatedruntime = Column(Float, nullable=True) # En minutos o segundos      
+    estimatedruntime = Column(Float, nullable=True)         
     source = Column(String(100), nullable=True) # Fuente de los datos
     
     def to_dict(self):
@@ -126,7 +126,7 @@ class BatteryData(db.Model):
             'humidity': self.humidity,
             # --- NUEVOS CAMPOS EN to_dict ---
             'estimatedchargeremaining': self.estimatedchargeremaining,
-            'estimatedruntime': self.estimatedruntime,                
+            'estimatedruntime': self.estimatedruntime,            
             'source': self.source,
         }
 
@@ -201,11 +201,11 @@ class AnalysisResult(db.Model):
             result_data = json.loads(self.result) if self.result else {}
         except:
             result_data = {'raw_result': self.result}
-         try:
+        try:
             explanation_data = json.loads(self.explanation) if self.explanation else {}
         except:
             explanation_data = {'raw_explanation': self.explanation}
-		
+        
         return {
             'id': self.id,
             'battery_id': self.battery_id,
@@ -214,7 +214,7 @@ class AnalysisResult(db.Model):
             'confidence_score': self.confidence_score,
             'model_version': self.model_version,
             'processing_time': self.processing_time,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': self.created_at.isoformat() if self.created_at else None,
             'fault_detected': self.fault_detected,
             'fault_type': self.fault_type,
             'severity': self.severity,
@@ -349,8 +349,8 @@ def create_sample_data():
                 model='Li-ion 100Ah',
                 manufacturer='BattTech',
                 serial_number='BT-2024-001',
-                capacity_ah=100.0,
-                voltage_nominal=12.0,
+                full_charge_capacity=100.0,
+                designvoltage=12.0,
                 chemistry='Li-ion',
                 location='Sala de Servidores',
                 status='active'
