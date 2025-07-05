@@ -230,6 +230,7 @@ def classify_anomaly_severity(anomalies, df):
     return classified
 
 @ai_bp.route('/analyze/<int:battery_id>', methods=['POST'])
+@cross_origin()
 def analyze_battery(battery_id):
     """Realizar análisis completo de IA en una batería - Sin autenticación"""
     try:
@@ -327,6 +328,7 @@ def analyze_battery(battery_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ai_bp.route('/fault-detection/<int:battery_id>', methods=['POST'])
+@cross_origin()
 def detect_faults(battery_id):
     """Detectar fallas específicas en una batería - Sin autenticación"""
     try:
@@ -384,6 +386,7 @@ def detect_faults(battery_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ai_bp.route('/health-prediction/<int:battery_id>', methods=['POST'])
+@cross_origin()
 def predict_health(battery_id):
     """Predecir estado de salud y vida útil restante - Sin autenticación"""
     try:
@@ -439,6 +442,7 @@ def predict_health(battery_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ai_bp.route('/anomaly-detection/<int:battery_id>', methods=['POST'])
+@cross_origin()
 def detect_anomalies(battery_id):
     """Detectar anomalías en tiempo real - Sin autenticación"""
     try:
