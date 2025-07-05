@@ -92,7 +92,7 @@ def create_battery():
 
         new_battery = Battery(
             name=name,
-            chemistry"=data.get('chemistry'),
+            chemistry=data.get('chemistry'),
             nominal_voltage=data.get('nominal_voltage'),
             capacity_ah=data.get('capacity_ah')
         )
