@@ -2,6 +2,7 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import JSONB
 
 from src.main import db
 
@@ -274,6 +275,32 @@ class ThermalImage(db.Model):
             'captured_at': self.captured_at.isoformat() if self.captured_at else None,
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
             'processed_at': self.processed_at.isoformat() if self.processed_at else None
+        }
+
+class DigitalTwin(db.Model):
+    """Modelo para almacenar los gemelos digitales de las baterías."""
+    __tablename__ = 'digital_twins'
+
+    id = Column(Integer, primary_key=True)
+    twin_id = Column(String(255), unique=True, nullable=False) # UUID para el gemelo
+    battery_id = Column(Integer, ForeignKey('batteries.id'), nullable=False)
+
+    # Almacenar el modelo complejo como JSON/Texto
+    parameters = Column(JSONB, nullable=True) # Usa Text si no usas PostgreSQL y no quieres JSONB
+    initial_state = Column(JSONB, nullable=True) # Usa Text si no usas PostgreSQL y no quieres JSONB
+    initialization_info = Column(JSONB, nullable=True) # Usa Text si no usas PostgreSQL y no quieres JSONB
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'twin_id': self.twin_id,
+            'battery_id': self.battery_id,
+            'parameters': self.parameters,
+            'initial_state': self.initial_state,
+            'initialization_info': self.initialization_info,
+            'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
 class MaintenanceRecord(db.Model):
