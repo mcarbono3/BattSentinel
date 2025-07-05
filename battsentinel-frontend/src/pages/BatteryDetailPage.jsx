@@ -1,10 +1,11 @@
 // src/pages/BatteryDetailPage.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 // Se han añadido Bolt, Gauge, SlidersHorizontal, Power, Calendar, EyeOff, Trash2, Eye
-import { Activity, Battery, Thermometer, Zap, Clock, TrendingUp, AlertTriangle, ChevronLeft, Wrench, BarChart2, Bolt, Gauge, SlidersHorizontal, Power, Calendar, EyeOff, Trash2, Eye } from 'lucide-react';
+import { Activity, Battery, Thermometer, Zap, Clock, TrendingUp, AlertTriangle, ChevronLeft, Wrench, BarChart2, Bolt, Gauge, SlidersHorizontal, Power, Calendar, EyeOff, Trash2, Eye, BatteryCharging } from 'lucide-react';
 import { useBattery } from '@/contexts/BatteryContext';
 import { cn, formatNumber, formatPercentage, getBatteryStatusColor, formatDate, formatDateTime } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
@@ -23,11 +24,28 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast'; // Asumiendo que tienes un componente de Toast para notificaciones
+// Importar Popover y CalendarComponent para el selector de fechas
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { format, addDays } from "date-fns"; // Importar format y addDays
+
+// Importar DropdownMenu para el selector de gráficos
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
+
 
 export default function BatteryDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast(); // Inicializar toast
+
+  const [settingsVersion, setSettingsVersion] = useState(0); //
 
   const {
     getBatteryById,
@@ -54,6 +72,52 @@ export default function BatteryDetailPage() {
 
   const isBatteryHidden = battery ? hiddenBatteryIds.has(battery.id) : false;
 
+  // --- Nuevos estados para el manejo de gráficos (manteniendo la lógica de la mejora anterior) ---
+  const initialChartMetrics = [
+    'soc', 'soh', 'temperature', 'current', 'cycles',
+    'voltage', 'efficiency', 'internal_resistance', 'power' // Usar internal_resistance para que coincida con el backend
+  ];
+
+// Función para obtener el estado inicial de dateRange desde localStorage
+const getInitialDateRange = () => {
+      const storedDateRange = localStorage.getItem('battSentinelDateRange');
+    try {
+        const storedRange = localStorage.getItem('battSentinelDateRange');
+        if (storedRange) {
+            const parsedRange = JSON.parse(storedRange);
+            // Asegúrate de que las fechas sean objetos Date
+            return {
+                from: parsedRange.from ? new Date(parsedRange.from) : undefined,
+                to: parsedRange.to ? new Date(parsedRange.to) : undefined,
+            };
+        }
+    } catch (e) {
+        console.error("Error parsing date range from localStorage", e);
+    }
+    return { from: undefined, to: undefined };
+};
+
+// Función para obtener el estado inicial de los gráficos desde localStorage
+const getInitialVisibleCharts = () => {
+    try {
+        const storedCharts = localStorage.getItem('battSentinelVisibleCharts');
+        if (storedCharts) {
+            const parsedCharts = JSON.parse(storedCharts);
+            // Asegúrate de que los gráficos guardados son un array y válidos
+            if (Array.isArray(parsedCharts) && parsedCharts.every(chart => initialChartMetrics.includes(chart))) {
+                return parsedCharts;
+            }
+        }
+    } catch (e) {
+        console.error("Error parsing visible charts from localStorage", e);
+    }
+    return initialChartMetrics; // Por defecto, todos los gráficos
+};
+
+  const [pendingVisibleCharts, setPendingVisibleCharts] = useState(getInitialVisibleCharts); // Nuevo estado
+  const [visibleCharts, setVisibleCharts] = useState(getInitialVisibleCharts);
+  const [dateRange, setDateRange] = useState(getInitialDateRange);
+
   useEffect(() => {
     const fetchBatteryDetails = async () => {
       if (id) {
@@ -69,56 +133,171 @@ export default function BatteryDetailPage() {
     fetchBatteryDetails();
   }, [id, getBatteryById]);
 
-  useEffect(() => {
-    const fetchAdditionalData = async () => {
-      if (battery?.id) {
-        setLoadingAdditionalData(true);
-        setAdditionalDataError(null);
+useEffect(() => {
+    localStorage.setItem('battSentinelDateRange', JSON.stringify(dateRange));
+}, [dateRange]);
 
-        const batteryId = battery.id;
+useEffect(() => {
+    localStorage.setItem('battSentinelVisibleCharts', JSON.stringify(pendingVisibleCharts));
+}, [pendingVisibleCharts]);
 
-        // Cargar Alertas
-        const alertsResult = await getAlertsByBatteryId(batteryId);
-        if (alertsResult.success) {
-          setAlerts(alertsResult.data);
-        } else {
-          console.error("Error fetching alerts:", alertsResult.error);
-          setAdditionalDataError(prev => ({ ...prev, alerts: alertsResult.error || 'Error al cargar alertas' }));
-        }
+// Opcional: También guardar visibleCharts si difiere de pendingVisibleCharts al aplicar
+useEffect(() => {
+    // Asegura que visibleCharts también se guarda después de aplicar los filtros
+    localStorage.setItem('battSentinelVisibleCharts', JSON.stringify(visibleCharts));
+}, [visibleCharts]);
 
-        // Cargar Resultados de Análisis
-        const analysisResult = await getAnalysisResultsByBatteryId(batteryId);
-        if (analysisResult.success) {
-          setAnalysisResults(analysisResult.data);
-        } else {
-          console.error("Error fetching analysis results:", analysisResult.error);
-          setAdditionalDataError(prev => ({ ...prev, analysis: analysisResult.error || 'Error al cargar resultados de análisis' }));
-        }
-
-        // Cargar Registros de Mantenimiento
-        const maintenanceResult = await getMaintenanceRecordsByBatteryId(batteryId);
-        if (maintenanceResult.success) {
-          setMaintenanceRecords(maintenanceResult.data);
-        } else {
-          console.error("Error fetching maintenance records:", maintenanceResult.error);
-          setAdditionalDataError(prev => ({ ...prev, maintenance: maintenanceResult.error || 'Error al cargar registros de mantenimiento' }));
-        }
-
-        // Cargar Datos Históricos (para gráficos)
-        const historicalDataResult = await getBatteryHistoricalData(batteryId, { time_range: 'last_30_days', interval: 'daily' });
-        if (historicalDataResult.success) {
-          setHistoricalData(historicalDataResult.data);
-        } else {
-          console.error("Error fetching historical data:", historicalDataResult.error);
-          setAdditionalDataError(prev => ({ ...prev, historical: historicalDataResult.error || 'Error al cargar datos históricos' }));
-        }
-
-        setLoadingAdditionalData(false);
+  // --- Función para cargar datos históricos con filtros ---
+  const fetchHistoricalData = useCallback(async (start, end) => {
+    if (!battery?.id) return;
+    setLoadingAdditionalData(true);
+    setAdditionalDataError(prev => ({ ...prev, historical: null }));
+    try {
+      const params = {};
+      if (start) {
+        params.startDate = format(start, 'yyyy-MM-dd');
       }
+      if (end) {
+        const adjustedEndDate = addDays(end, 1);
+	params.endDate = format(adjustedEndDate, 'yyyy-MM-dd');
+      }
+      const historicalDataResult = await getBatteryHistoricalData(battery.id, params);
+      if (historicalDataResult.success) {
+        setHistoricalData(historicalDataResult.data);
+      } else {
+        console.error("Error fetching historical data:", historicalDataResult.error);
+        setAdditionalDataError(prev => ({ ...prev, historical: historicalDataResult.error || 'Error al cargar datos históricos' }));
+      }
+    } catch (err) {
+      console.error("Failed to fetch historical data:", err);
+      setAdditionalDataError(prev => ({ ...prev, historical: "Error inesperado al cargar datos históricos." }));
+    } finally {
+      setLoadingAdditionalData(false);
+    }
+  }, [battery?.id, getBatteryHistoricalData]);
+
+
+  // Uso de useCallback para optimizar las funciones de fetching
+  const fetchCurrentBatteryDetails = useCallback(async () => {
+    if (id) {
+      const result = await getBatteryById(parseInt(id));
+      if (result && result.success) {
+        setBattery(result.data);
+      } else {
+        console.error("Error fetching battery details for polling:", result ? result.error : "Unknown error");
+      }
+    }
+  }, [id, getBatteryById]);
+
+  const fetchAllRelatedData = useCallback(async () => {
+    if (battery?.id) {
+      const batteryId = battery.id;
+
+      // Cargar Alertas
+      const alertsResult = await getAlertsByBatteryId(batteryId);
+      if (alertsResult.success) {
+        setAlerts(alertsResult.data);
+      } else {
+        console.error("Error fetching alerts for polling:", alertsResult.error);
+      }
+
+      // Cargar Resultados de Análisis
+      const analysisResult = await getAnalysisResultsByBatteryId(batteryId);
+      if (analysisResult.success) {
+        setAnalysisResults(analysisResult.data);
+      } else {
+        console.error("Error fetching analysis results for polling:", analysisResult.error);
+      }
+
+      // Cargar Registros de Mantenimiento
+      const maintenanceResult = await getMaintenanceRecordsByBatteryId(batteryId);
+      if (maintenanceResult.success) {
+        setMaintenanceRecords(maintenanceResult.data);
+      } else {
+        console.error("Error fetching maintenance records for polling:", maintenanceResult.error);
+      }
+    }
+  }, [battery?.id, getAlertsByBatteryId, getAnalysisResultsByBatteryId, getMaintenanceRecordsByBatteryId]);
+
+
+  // *******************************************************************
+  // ** INICIO DE LA SECCIÓN A MODIFICAR PARA APLICAR LAS CONFIGURACIONES DE REFRESH **
+  // *******************************************************************
+
+  useEffect(() => {
+    let intervalId;
+    const handleSettingsChanged = () => { // <-- AÑADIR ESTA FUNCIÓN
+      console.log("Evento 'battSentinelSettingsChanged' recibido. Re-evaluando polling.");
+      setSettingsVersion(prev => prev + 1); // Incrementa para forzar re-ejecución del useEffect
     };
 
-    fetchAdditionalData();
-  }, [battery?.id, getAlertsByBatteryId, getAnalysisResultsByBatteryId, getMaintenanceRecordsByBatteryId, getBatteryHistoricalData]);
+    // Añadir el event listener
+    window.addEventListener('battSentinelSettingsChanged', handleSettingsChanged);
+
+    let autoRefreshEnabled = true; // Por defecto si no se encuentra en localStorage
+    let refreshInterval = 30000; // Valor por defecto: 30 segundos (30000 ms)
+
+    try {
+      const storedEnabled = localStorage.getItem('battSentinelAutoRefreshEnabled');
+      if (storedEnabled !== null) {
+        autoRefreshEnabled = JSON.parse(storedEnabled);
+      }
+
+      const storedInterval = localStorage.getItem('battSentinelRefreshIntervalMs');
+      if (storedInterval) {
+        const parsedInterval = parseInt(storedInterval, 10);
+        if (!isNaN(parsedInterval) && parsedInterval > 0) {
+          refreshInterval = parsedInterval;
+        } else {
+          console.warn("Valor inválido para el intervalo de refresco en localStorage, usando el valor por defecto.");
+        }
+      }
+    } catch (e) {
+      console.error("Error al leer la configuración de refresco de localStorage, usando valores por defecto:", e);
+    }
+
+    if (autoRefreshEnabled) {
+      // Ejecutar las funciones inmediatamente al montar y luego en el intervalo
+      fetchCurrentBatteryDetails();
+      fetchAllRelatedData();
+      if (!dateRange.from && !dateRange.to) {
+        fetchHistoricalData(undefined, undefined);
+      }
+
+      intervalId = setInterval(() => {
+        fetchCurrentBatteryDetails();
+        fetchAllRelatedData();
+        // Refresca datos históricos solo si no hay filtros de fecha aplicados
+        if (!dateRange.from && !dateRange.to) {
+          fetchHistoricalData(undefined, undefined);
+        }
+      }, refreshInterval);
+    } else {
+      console.log("Refresco automático deshabilitado en la configuración.");
+    }
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId); // Limpieza: detener el intervalo al desmontar o al cambiar las dependencias
+      }
+      // Limpieza: remover el event listener
+      window.removeEventListener('battSentinelSettingsChanged', handleSettingsChanged); // <-- AÑADIR ESTA LÍNEA
+    };
+  }, [fetchCurrentBatteryDetails, fetchAllRelatedData, fetchHistoricalData, settingsVersion]); 
+
+
+  // *******************************************************************
+  // ** FIN DE LA SECCIÓN A MODIFICAR PARA APLICAR LAS CONFIGURACIONES DE REFRESH **
+  // *******************************************************************
+
+
+  // Nuevo useEffect para cargar datos históricos cuando cambie la batería o el rango de fechas
+  useEffect(() => {
+    if (battery?.id) {
+      fetchHistoricalData(dateRange.from, dateRange.to);
+    }
+  }, [battery?.id, fetchHistoricalData]);
+
 
   // Funciones para eliminar y ocultar
   const handleDeleteBattery = async () => {
@@ -158,11 +337,44 @@ export default function BatteryDetailPage() {
     }
   };
 
+  // Funciones para los filtros de gráficos
+  const handleToggleChart = (chartName) => {
+    setPendingVisibleCharts(prev =>
+      prev.includes(chartName)
+        ? prev.filter(name => name !== chartName)
+        : [...prev, chartName]
+    );
+  };
+
+  const handleApplyFilters = () => {
+     setVisibleCharts(pendingVisibleCharts); 
+    // La re-llamada a fetchHistoricalData ya se maneja en el useEffect
+    fetchHistoricalData(dateRange.from, dateRange.to); // Forzar recarga con las fechas y gráficos seleccionados
+  };
+
+  const handleClearFilters = () => {
+    setVisibleCharts(initialChartMetrics); // Restablecer a todos los gráficos
+    setPendingVisibleCharts(initialChartMetrics);
+    const newDateRange = { from: undefined, to: undefined };
+    setDateRange(newDateRange); // Limpiar rango de fechas
+    // El useEffect para historicalData se encargará de volver a cargar sin filtros.
+    localStorage.removeItem('battSentinelDateRange');
+    localStorage.removeItem('battSentinelVisibleCharts');
+
+    fetchHistoricalData(newDateRange.from, newDateRange.to);
+  };
+
+  const today = new Date();
+  const last15Days = addDays(today, -15);
+  const lastMonth = addDays(today, -30);
+
 
   // Derivar la última o única medición de historicalData para las métricas clave
+  // Se ha adaptado para usar el primer elemento si no hay un `latestBatteryMetrics` directo
   const latestBatteryMetrics = Array.isArray(historicalData) && historicalData.length > 0
-    ? historicalData[historicalData.length - 1]
-    : (historicalData && typeof historicalData === 'object' ? historicalData : null);
+    ? historicalData[historicalData.length - 1] // Última medición
+    : (battery || null); // Si no hay datos históricos, usar los datos de la batería principal
+
 
   if (loading) {
     return (
@@ -265,7 +477,7 @@ export default function BatteryDetailPage() {
             <div>
               <CardTitle className="text-2xl font-bold">{battery.name || 'N/A'}</CardTitle>
               <CardDescription>
-                {battery.type || 'N/A'} {battery.model && `(${battery.model})`} - SN: {battery.serial_number || 'N/A'}
+                {battery.chemistry || 'N/A'} {battery.model && `(${battery.model})`} - SN: {battery.serial_number || 'N/A'}
               </CardDescription>
             </div>
             <Badge variant="outline" className={cn("ml-auto", getBatteryStatusColor(battery.status))}>
@@ -280,15 +492,19 @@ export default function BatteryDetailPage() {
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-medium text-muted-foreground">Capacidad Nominal</span>
-            <span className="text-base font-semibold">{battery.capacity ? `${battery.capacity} Ah` : 'N/A'}</span>
+            <span className="text-base font-semibold">{battery.full_charge_capacity ? `${battery.full_charge_capacity} Ah` : 'N/A'}</span>
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-medium text-muted-foreground">Voltaje Nominal</span>
-            <span className="text-base font-semibold">{battery.voltage_nominal ? `${battery.voltage_nominal} V` : 'N/A'}</span>
+            <span className="text-base font-semibold">{battery.designvoltage ? `${battery.designvoltage} V` : 'N/A'}</span>
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-medium text-muted-foreground">Fecha de Instalación</span>
             <span className="text-base font-semibold">{formattedInstallationDate}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm font-medium text-muted-foreground">Tipo de batería</span>
+            <span className="text-base font-semibold">{battery.chemistry || 'N/A'}</span>
           </div>
         </CardContent>
       </Card>
@@ -334,7 +550,7 @@ export default function BatteryDetailPage() {
             <Clock className="h-10 w-10 text-purple-500 mb-2" />
             <span className="text-sm font-medium text-muted-foreground">Vida Útil Restante (RUL)</span>
             <span className="text-2xl font-bold text-purple-600">
-              {battery.rul ? `${formatNumber(battery.rul, 1)} años` : '--'}
+              {latestBatteryMetrics?.rul_days ? `${formatNumber(latestBatteryMetrics?.rul_days, 1)} dias` : '--'}
             </span>
           </div>
 
@@ -392,6 +608,33 @@ export default function BatteryDetailPage() {
             <span className="text-2xl font-bold text-indigo-600">
               {latestBatteryMetrics?.power ? `${formatNumber(latestBatteryMetrics.power, 2)} W` : '--'}
             </span>
+          </div>
+
+          {/* Estado */}
+          <div className="flex flex-col items-center">
+            {latestBatteryMetrics ? (
+              <>
+                {latestBatteryMetrics.is_plugged ? (
+                  <BatteryCharging className="h-10 w-10 text-green-500 mb-2" />
+                ) : (
+                  <Battery className="h-10 w-10 text-red-500 mb-2" />
+                )}
+                <span className="text-sm font-medium text-muted-foreground">Estado</span>
+                <span
+                  className={`text-2xl font-bold ${
+                    latestBatteryMetrics.is_plugged ? 'text-green-600' : 'text-red-600'
+                  }`}
+                >
+                  {latestBatteryMetrics.is_plugged ? 'Carga' : 'Descarga'}
+                </span>
+              </>
+            ) : (
+              <>
+                <Battery className="h-10 w-10 text-gray-400 mb-2" />
+                <span className="text-sm font-medium text-muted-foreground">Estado</span>
+                <span className="text-2xl font-bold text-gray-500">--</span>
+              </>
+            )}
           </div>
 
           {/* Last Measurement Timestamp */}
@@ -523,7 +766,7 @@ export default function BatteryDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Placeholder para Gráficos de Datos Históricos (se usará 'historicalData' aquí) */}
+      {/* Gráficos de Datos Históricos */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center">
@@ -532,20 +775,371 @@ export default function BatteryDetailPage() {
           <CardDescription>Visualización de tendencias de rendimiento a lo largo del tiempo.</CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="flex flex-wrap gap-4 items-center mb-6"> {/* flex-wrap para responsividad */}
+            {/* Selector de Rango de Fechas */}
+            <div className="flex items-center space-x-2">
+              <Calendar className="h-4 w-4 text-gray-500" />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="date"
+                    variant={"outline"}
+                    className={cn(
+                      "w-[260px] justify-start text-left font-normal",
+                      !dateRange?.from && "text-muted-foreground"
+                    )}
+                  >
+                    {dateRange?.from ? (
+                      dateRange?.to ? (
+                        <>
+                          {format(dateRange.from, "LLL dd, y")} -{" "}
+                          {format(dateRange.to, "LLL dd, y")}
+                        </>
+                      ) : (
+                        format(dateRange.from, "LLL dd, y")
+                      )
+                    ) : (
+                      <span>Seleccionar rango de fechas</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarComponent
+                    initialFocus
+                    mode="range"
+                    defaultMonth={dateRange?.from}
+                    selected={dateRange}
+                    onSelect={setDateRange}
+                    numberOfMonths={2}
+                  />
+                  <div className="p-4 flex flex-col space-y-2">
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => setDateRange({ from: last15Days, to: today })}
+                    >
+                      Últimos 15 días
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => setDateRange({ from: lastMonth, to: today })}
+                    >
+                      Último mes
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Selector de Gráficos */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="min-w-[180px]">
+                  <BarChart2 className="h-4 w-4 mr-2" />
+                  Visualizar Gráficos
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56">
+                <DropdownMenuLabel>Seleccionar Gráficos</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {initialChartMetrics.map((metric) => (
+                  <DropdownMenuCheckboxItem
+                    key={metric}
+                    checked={pendingVisibleCharts.includes(metric)}
+                    onCheckedChange={() => handleToggleChart(metric)}
+                  >
+                    {metric.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())} {/* Formatear camelCase a texto legible */}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Botones de Acción */}
+            <div className="flex space-x-2">
+              <Button onClick={handleApplyFilters}>Aplicar Filtros</Button>
+              <Button variant="outline" onClick={handleClearFilters}>
+                Limpiar Filtros
+              </Button>
+            </div>
+          </div>
+
+
           {loadingAdditionalData && !additionalDataError?.historical && <p>Cargando datos históricos...</p>}
           {additionalDataError?.historical && <p className="text-red-500">Error al cargar datos históricos: {additionalDataError.historical}</p>}
-          {!loadingAdditionalData && !historicalData && !additionalDataError?.historical && (
+          {!loadingAdditionalData && (!historicalData || historicalData.length === 0) && !additionalDataError?.historical && (
             <p className="text-muted-foreground">No hay datos históricos disponibles para mostrar gráficos.</p>
           )}
-          {historicalData && (Array.isArray(historicalData) ? historicalData.length > 0 : typeof historicalData === 'object') && (
-            <div className="text-muted-foreground">
-              <p>Datos históricos cargados (
-                {Array.isArray(historicalData) ? `${historicalData.length} puntos` : '1 punto'}
-                ). Ahora puedes integrar aquí los componentes de gráficos para visualizar estos datos.</p>
-              {/* Para depuración, puedes descomentar la siguiente línea para ver los datos crudos: */}
-              {/* <pre className="text-xs overflow-auto h-40">{JSON.stringify(historicalData, null, 2)}</pre> */}
+
+          {/* Gráfico de SOC (Barras) */}
+          {historicalData && Array.isArray(historicalData) && historicalData.length > 0 && visibleCharts.includes('soc') && (
+            <div className="mb-8"> {/* Añadimos margen inferior para separar gráficos */}
+              <h3 className="text-lg font-semibold mb-2">Estado de Carga (SOC)</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart
+                  data={historicalData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+                    label={{ value: 'Fecha', position: 'insideBottom', offset: -5 }}
+                  />
+                  <YAxis
+                    tickFormatter={(value) => `${value}%`}
+                    label={{ value: 'SOC (%)', angle: -90, position: 'insideLeft', offset: 10 }}
+                  />
+                  <Tooltip
+                    labelFormatter={(label) => `Fecha: ${new Date(label).toLocaleString()}`}
+                    formatter={(value) => [`${formatNumber(value)}%`, 'SOC']}
+                  />
+                  <Legend />
+                  <Bar dataKey="soc" fill="#8884d8" name="Estado de Carga (SOC)" />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           )}
+
+          {/* Gráfico de SOH (Líneas) */}
+          {historicalData && Array.isArray(historicalData) && historicalData.length > 0 && visibleCharts.includes('soh') && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold mb-2">Salud de la Batería (SOH)</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart
+                  data={historicalData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+                    label={{ value: 'Fecha', position: 'insideBottom', offset: -5 }}
+                  />
+                  <YAxis
+                    tickFormatter={(value) => `${value}%`}
+                    label={{ value: 'SOH (%)', angle: -90, position: 'insideLeft', offset: 10 }}
+                  />
+                  <Tooltip
+                    labelFormatter={(label) => `Fecha: ${new Date(label).toLocaleString()}`}
+                    formatter={(value) => [`${formatNumber(value)}%`, 'SOH']}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="soh" stroke="#82ca9d" name="Salud de la Batería (SOH)" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Gráfico de Temperatura (Líneas) */}
+          {historicalData && Array.isArray(historicalData) && historicalData.length > 0 && visibleCharts.includes('temperature') && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold mb-2">Temperatura</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart
+                  data={historicalData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+                    label={{ value: 'Fecha', position: 'insideBottom', offset: -5 }}
+                  />
+                  <YAxis
+                    tickFormatter={(value) => `${formatNumber(value)}°C`}
+                    label={{ value: 'Temperatura (°C)', angle: -90, position: 'insideLeft', offset: 10 }}
+                  />
+                  <Tooltip
+                    labelFormatter={(label) => `Fecha: ${new Date(label).toLocaleString()}`}
+                    formatter={(value) => [`${formatNumber(value)}°C`, 'Temperatura']}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="temperature" stroke="#ffc658" name="Temperatura" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Gráfico de Corriente (Líneas) */}
+          {historicalData && Array.isArray(historicalData) && historicalData.length > 0 && visibleCharts.includes('current') && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold mb-2">Corriente</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart
+                  data={historicalData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+                    label={{ value: 'Fecha', position: 'insideBottom', offset: -5 }}
+                  />
+                  <YAxis
+                    tickFormatter={(value) => `${formatNumber(value)}A`}
+                    label={{ value: 'Corriente (A)', angle: -90, position: 'insideLeft', offset: 10 }}
+                  />
+                  <Tooltip
+                    labelFormatter={(label) => `Fecha: ${new Date(label).toLocaleString()}`}
+                    formatter={(value) => [`${formatNumber(value)}A`, 'Corriente']}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="current" stroke="#ff7300" name="Corriente" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Gráfico de Ciclos (Líneas) */}
+          {historicalData && Array.isArray(historicalData) && historicalData.length > 0 && visibleCharts.includes('cycles') && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold mb-2">Ciclos</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart
+                  data={historicalData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+                    label={{ value: 'Fecha', position: 'insideBottom', offset: -5 }}
+                  />
+                  <YAxis
+                    label={{ value: 'Ciclos', angle: -90, position: 'insideLeft', offset: 10 }}
+                  />
+                  <Tooltip
+                    labelFormatter={(label) => `Fecha: ${new Date(label).toLocaleString()}`}
+                    formatter={(value) => [formatNumber(value), 'Ciclos']}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="cycles" stroke="#ff65a3" name="Ciclos" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Gráfico de Voltaje (Líneas) */}
+          {historicalData && Array.isArray(historicalData) && historicalData.length > 0 && visibleCharts.includes('voltage') && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold mb-2">Voltaje</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart
+                  data={historicalData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+                    label={{ value: 'Fecha', position: 'insideBottom', offset: -5 }}
+                  />
+                  <YAxis
+                    tickFormatter={(value) => `${formatNumber(value)}V`}
+                    label={{ value: 'Voltaje (V)', angle: -90, position: 'insideLeft', offset: 10 }}
+                  />
+                  <Tooltip
+                    labelFormatter={(label) => `Fecha: ${new Date(label).toLocaleString()}`}
+                    formatter={(value) => [`${formatNumber(value)}V`, 'Voltaje']}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="voltage" stroke="#8dd1e1" name="Voltaje" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Gráfico de Eficiencia (Líneas) */}
+          {historicalData && Array.isArray(historicalData) && historicalData.length > 0 && visibleCharts.includes('efficiency') && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold mb-2">Eficiencia</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart
+                  data={historicalData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+                    label={{ value: 'Fecha', position: 'insideBottom', offset: -5 }}
+                  />
+                  <YAxis
+                    tickFormatter={(value) => `${formatPercentage(value)}`}
+                    label={{ value: 'Eficiencia (%)', angle: -90, position: 'insideLeft', offset: 10 }}
+                  />
+                  <Tooltip
+                    labelFormatter={(label) => `Fecha: ${new Date(label).toLocaleString()}`}
+                    formatter={(value) => [`${formatPercentage(value)}`, 'Eficiencia']}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="efficiency" stroke="#a4de6c" name="Eficiencia" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Gráfico de Resistencia Interna (Líneas) */}
+          {historicalData && Array.isArray(historicalData) && historicalData.length > 0 && visibleCharts.includes('internal_resistance') && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold mb-2">Resistencia Interna</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart
+                  data={historicalData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+                    label={{ value: 'Fecha', position: 'insideBottom', offset: -5 }}
+                  />
+                  <YAxis
+                    tickFormatter={(value) => `${formatNumber(value)}Ω`}
+                    label={{ value: 'Resistencia Interna (Ω)', angle: -90, position: 'insideLeft', offset: 10 }}
+                  />
+                  <Tooltip
+                    labelFormatter={(label) => `Fecha: ${new Date(label).toLocaleString()}`}
+                    formatter={(value) => [`${formatNumber(value)}Ω`, 'Resistencia Interna']}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="internal_resistance" stroke="#d0ed57" name="Resistencia Interna" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Gráfico de Potencia (Líneas) */}
+          {historicalData && Array.isArray(historicalData) && historicalData.length > 0 && visibleCharts.includes('power') && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold mb-2">Potencia</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart
+                  data={historicalData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+                    label={{ value: 'Fecha', position: 'insideBottom', offset: -5 }}
+                  />
+                  <YAxis
+                    tickFormatter={(value) => `${formatNumber(value)}W`}
+                    label={{ value: 'Potencia (W)', angle: -90, position: 'insideLeft', offset: 10 }}
+                  />
+                  <Tooltip
+                    labelFormatter={(label) => `Fecha: ${new Date(label).toLocaleString()}`}
+                    formatter={(value) => [`${formatNumber(value)}W`, 'Potencia']}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="power" stroke="#f08700" name="Potencia" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
         </CardContent>
       </Card>
     </div>
