@@ -14,7 +14,7 @@ from src.services.windows_battery import windows_battery_service
 
 ai_bp = Blueprint('ai_analysis', __name__)
 
-@ai_bp.route('/api/ai/analyze/<int:battery_id>', methods=['POST'])
+@ai_bp.route('/analyze/<int:battery_id>', methods=['POST', 'OPTIONS'])
 def analyze_battery(battery_id):
     """Realizar análisis de IA en una batería - Sin autenticación"""
     try:
