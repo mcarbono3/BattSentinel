@@ -188,14 +188,23 @@ class AnalysisResult(db.Model):
     model_version = Column(String(50))
     processing_time = Column(Float)  # segundos
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+    # --- NUEVOS CAMPOS A AÑADIR ---
+    fault_detected = Column(Boolean, nullable=True)
+    fault_type = Column(String(100), nullable=True)
+    severity = Column(String(50), nullable=True) # low, medium, high, critical
+    rul_prediction = Column(Float, nullable=True) # Predicción de días de vida útil restante
+    explanation = Column(Text, nullable=True) # JSON string con explicación del modelo
     def to_dict(self):
         import json
         try:
             result_data = json.loads(self.result) if self.result else {}
         except:
             result_data = {'raw_result': self.result}
-            
+         try:
+            explanation_data = json.loads(self.explanation) if self.explanation else {}
+        except:
+            explanation_data = {'raw_explanation': self.explanation}
+		
         return {
             'id': self.id,
             'battery_id': self.battery_id,
@@ -205,6 +214,11 @@ class AnalysisResult(db.Model):
             'model_version': self.model_version,
             'processing_time': self.processing_time,
             'created_at': self.created_at.isoformat() if self.created_at else None
+            'fault_detected': self.fault_detected,
+            'fault_type': self.fault_type,
+            'severity': self.severity,
+            'rul_prediction': self.rul_prediction,
+            'explanation': explanation_data
         }
 
 class ThermalImage(db.Model):
