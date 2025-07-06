@@ -19,8 +19,16 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16MB max file size
 # === CONFIGURACIÓN DE CORS ===
 # **IMPORTANTE:** Usamos SOLO esta configuración para manejar CORS.
 # Permite CORS para tu frontend específico en todas las rutas bajo /api/
-CORS(app, resources={r"/api/*": {"origins": "https://mcarbono3.github.io"},
-                     r"/*": {"origins": "https://mcarbono3.github.io"}}) #
+CORS(app, resources={r"/api/*": {"origins": [
+    "https://mcarbono3.github.io",
+    "https://mcarbono3.github.io/BattSentinel",
+    "https://mcarbono3.github.io/BattSentinel/"
+]},
+r"/*": {"origins": [
+    "https://mcarbono3.github.io",
+    "https://mcarbono3.github.io/BattSentinel",
+    "https://mcarbono3.github.io/BattSentinel/"
+]}})
 # Si en algún momento necesitas permitir CUALQUIER origen para depuración (menos seguro en producción):
 # CORS(app, origins="*")
 # Si solo necesitas habilitar CORS globalmente sin restricciones específicas de ruta:
