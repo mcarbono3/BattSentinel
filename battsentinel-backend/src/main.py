@@ -140,4 +140,4 @@ with app.app_context():
 
 if __name__ == '__main__':
     print("DEBUG (main.py): La aplicación se está ejecutando en el bloque __main__.")
-    socketio.run(app, debug=True, host='0.0.0.0', port=os.environ.get('PORT', 5000))
+    app.run(debug=True, host='0.0.0.0', port=os.environ.get('PORT', 5000))
