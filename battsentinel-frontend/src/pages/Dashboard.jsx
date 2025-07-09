@@ -330,7 +330,7 @@ export default function Dashboard() {
                             {/* Mostrar Nombre, Modelo y Número de Serie */}
                             <h4 className="font-medium text-foreground">{battery.name}</h4> {/* Usa 'Name' del backend */}
                             <p className="text-sm text-muted-foreground">
-                              {battery.type} {battery.model && `(${battery.model})`}
+                              {battery.chemistry}
                             </p>
                             {battery.serial_number && (
                               <p className="text-xs text-muted-foreground">SN: {battery.serial_number}</p>
