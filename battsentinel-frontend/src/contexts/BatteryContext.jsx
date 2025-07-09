@@ -1,19 +1,30 @@
 // src/contexts/BatteryContext.jsx
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { batteryAPI } from '@/lib/api'
-import { useAuth } from './AuthContext'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { batteryAPI } from '@/lib/api';
+import { useAuth } from './AuthContext';
 
-const BatteryContext = createContext({})
+const BatteryContext = createContext({});
 
 // Clave para localStorage
 const HIDDEN_BATTERIES_KEY = 'hiddenBatteryIds';
+const LOCAL_BATTERIES_KEY = 'localBatteries'; // Nueva clave para las baterías editadas
 
 export function BatteryProvider({ children }) {
-  const [batteries, setBatteries] = useState([])
-  const [selectedBattery, setSelectedBattery] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const { isAuthenticated } = useAuth()
+  // Inicializar baterías desde localStorage
+  const [batteries, setBatteries] = useState(() => {
+    try {
+      const storedBatteries = localStorage.getItem(LOCAL_BATTERIES_KEY);
+      return storedBatteries ? JSON.parse(storedBatteries) : [];
+    } catch (e) {
+      console.error("Failed to parse batteries from localStorage", e);
+      return [];
+    }
+  });
+
+  const [selectedBattery, setSelectedBattery] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const { isAuthenticated } = useAuth();
   // Nuevo estado para las IDs de baterías ocultas
   const [hiddenBatteryIds, setHiddenBatteryIds] = useState(() => {
     try {
@@ -30,65 +41,72 @@ export function BatteryProvider({ children }) {
     localStorage.setItem(HIDDEN_BATTERIES_KEY, JSON.stringify(Array.from(hiddenBatteryIds)));
   }, [hiddenBatteryIds]);
 
-  // Cargar baterías cuando el usuario esté autenticado
+  // Guardar batteries en localStorage cada vez que cambie
   useEffect(() => {
-    if (isAuthenticated) {
-      loadBatteries()
-    }
-  }, [isAuthenticated])
-
-  const loadBatteries = async () => {
     try {
-      setLoading(true)
-      setError(null)
-      const response = await batteryAPI.getBatteries()
+      localStorage.setItem(LOCAL_BATTERIES_KEY, JSON.stringify(batteries));
+    } catch (e) {
+      console.error("Failed to save batteries to localStorage", e);
+    }
+  }, [batteries]);
+
+  // Cargar baterías desde la API solo si el usuario está autenticado y no hay datos locales
+useEffect(() => {
+  if (isAuthenticated) {
+    loadBatteriesFromAPI();
+  }
+}, [isAuthenticated]);
+
+  const loadBatteriesFromAPI = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await batteryAPI.getBatteries();
       if (response.success) {
-        setBatteries(response.data)
+        setBatteries(response.data);
       } else {
-        setError(response.error)
+        setError(response.error);
       }
     } catch (error) {
-      setError('Error al cargar las baterías')
-      console.error('Error loading batteries:', error)
+      setError('Error al cargar las baterías');
+      console.error('Error loading batteries:', error);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const createBattery = async (batteryData) => {
     try {
-      const response = await batteryAPI.createBattery(batteryData)
+      const response = await batteryAPI.createBattery(batteryData);
       if (response.success) {
-        setBatteries(prev => [...prev, response.data])
-        return { success: true, data: response.data }
+        setBatteries(prev => [...prev, response.data]);
+        return { success: true, data: response.data };
       } else {
-        return { success: false, error: response.error }
+        return { success: false, error: response.error };
       }
     } catch (error) {
-      return { success: false, error: 'Error al crear la batería' }
+      return { success: false, error: 'Error al crear la batería' };
     }
-  }
+  };
 
+  // Función updateBattery modificada para persistencia solo en frontend
   const updateBattery = async (id, batteryData) => {
     try {
-      const response = await batteryAPI.updateBattery(id, batteryData)
-      if (response.success) {
-        setBatteries(prev => prev.map(b => b.id === id ? response.data : b))
-        setSelectedBattery(response.data); // Actualizar si es la batería seleccionada
-        return { success: true, data: response.data }
-      } else {
-        return { success: false, error: response.error }
-      }
+      const updatedBattery = { ...batteryData, id }; // Asegurar que el ID esté presente
+      setBatteries(prev => prev.map(b => b.id === id ? updatedBattery : b));
+      setSelectedBattery(updatedBattery); // Actualizar si es la batería seleccionada
+      return { success: true, data: updatedBattery };
     } catch (error) {
-      return { success: false, error: 'Error al actualizar la batería' }
+      console.error('Error al actualizar la batería localmente:', error);
+      return { success: false, error: 'Error al actualizar la batería localmente' };
     }
-  }
+  };
 
   const deleteBattery = async (id) => {
     try {
-      const response = await batteryAPI.deleteBattery(id)
+      const response = await batteryAPI.deleteBattery(id);
       if (response.success) {
-        setBatteries(prev => prev.filter(b => b.id !== id))
+        setBatteries(prev => prev.filter(b => b.id !== id));
         if (selectedBattery?.id === id) {
           setSelectedBattery(null); // Si se elimina la batería seleccionada, deseleccionar
         }
@@ -98,35 +116,42 @@ export function BatteryProvider({ children }) {
           newSet.delete(id);
           return newSet;
         });
-        return { success: true }
+        return { success: true };
       } else {
-        return { success: false, error: response.error }
+        return { success: false, error: response.error };
       }
     } catch (error) {
-      return { success: false, error: 'Error al eliminar la batería' }
+      return { success: false, error: 'Error al eliminar la batería' };
     }
-  }
+  };
 
   const getBatteryById = useCallback(async (batteryId) => {
     try {
-      setLoading(true); // Se agrega para mostrar carga al obtener una batería
+      setLoading(true);
       setError(null);
-      const response = await batteryAPI.getBattery(batteryId)
+      // Intentar obtener de las baterías ya cargadas localmente
+      const foundBattery = batteries.find(b => b.id === batteryId);
+      if (foundBattery) {
+        setSelectedBattery(foundBattery);
+        return { success: true, data: foundBattery };
+      }
+
+      // Si no se encuentra localmente, intentar del API (para datos iniciales)
+      const response = await batteryAPI.getBattery(batteryId);
       if (response.success) {
-        setSelectedBattery(response.data); // Actualiza la batería seleccionada
-        return { success: true, data: response.data }
+        setSelectedBattery(response.data);
+        return { success: true, data: response.data };
       } else {
         setError(response.error);
-        return { success: false, error: response.error }
+        return { success: false, error: response.error };
       }
     } catch (error) {
       setError('Error al obtener la batería');
-      return { success: false, error: 'Error al obtener la batería' }
+      return { success: false, error: 'Error al obtener la batería' };
     } finally {
-        setLoading(false); // Finaliza la carga
+      setLoading(false);
     }
-  }, []);
-
+  }, [batteries]);
 
   const getBatteryData = useCallback(async (batteryId) => {
     try {
@@ -307,7 +332,7 @@ export function BatteryProvider({ children }) {
     loading,
     error,
     setSelectedBattery,
-    loadBatteries,
+    loadBatteries: loadBatteriesFromAPI,
     createBattery,
     updateBattery,
     deleteBattery,
@@ -322,7 +347,7 @@ export function BatteryProvider({ children }) {
     activeBatteries: batteries.filter(b => b.active !== false),
     criticalBatteries: batteries.filter(b => {
       // Lógica para determinar baterías críticas
-      return false
+      return false;
     }),
     getAlertsByBatteryId,
     getAnalysisResultsByBatteryId,
@@ -332,20 +357,20 @@ export function BatteryProvider({ children }) {
     // Nuevas propiedades y funciones para ocultar/mostrar
     hiddenBatteryIds,
     toggleBatteryVisibility,
-    getVisibleBatteries, // Exportar para usar en Dashboard
-  }
+    getVisibleBatteries,
+  };
 
   return (
     <BatteryContext.Provider value={value}>
       {children}
     </BatteryContext.Provider>
-  )
+  );
 }
 
 export function useBattery() {
-  const context = useContext(BatteryContext)
+  const context = useContext(BatteryContext);
   if (context === undefined) {
-    throw new Error('useBattery must be used within a BatteryProvider')
+    throw new Error('useBattery must be used within a BatteryProvider');
   }
-  return context
+  return context;
 }
