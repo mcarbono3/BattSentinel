@@ -65,6 +65,9 @@ export default function BatteryDetailPage() { // <-- Una sola declaración
     loading,
     error,
     selectedBattery, // Usaremos este para actualizar el estado local de la batería
+    refreshInterval,
+    autoRefreshEnabled,
+    loadBatteries
   } = useBattery();
 
   const [battery, setBattery] = useState(null);
@@ -312,77 +315,48 @@ useEffect(() => {
 
 
   // *******************************************************************
-  // ** INICIO DE LA SECCIÓN A MODIFICAR PARA APLICAR LAS CONFIGURACIONES DE REFRESH **
+  // ** INICIO DE LA SECCIÓN MODIFICADA PARA APLICAR LAS CONFIGURACIONES DE REFRESH **
   // *******************************************************************
 
   useEffect(() => {
     let intervalId;
-    const handleSettingsChanged = () => { // <-- AÑADIR ESTA FUNCIÓN
-      console.log("Evento 'battSentinelSettingsChanged' recibido. Re-evaluando polling.");
-      setSettingsVersion(prev => prev + 1); // Incrementa para forzar re-ejecución del useEffect
-    };
 
-    // Añadir el event listener
-    window.addEventListener('battSentinelSettingsChanged', handleSettingsChanged);
+    console.log("refreshInterval en BatteryDetailPage:", refreshInterval);
+    console.log("autoRefreshEnabled en BatteryDetailPage:", autoRefreshEnabled);
 
-    let autoRefreshEnabled = true; // Por defecto si no se encuentra en localStorage
-    let refreshInterval = 420000; // Valor por defecto: 7 min (420000 ms)
-
-    try {
-      const storedEnabled = localStorage.getItem('battSentinelAutoRefreshEnabled');
-      if (storedEnabled !== null) {
-        autoRefreshEnabled = JSON.parse(storedEnabled);
-      }
-
-      const storedInterval = localStorage.getItem('battSentinelRefreshIntervalMs');
-      if (storedInterval) {
-        const parsedInterval = parseInt(storedInterval, 10);
-        if (!isNaN(parsedInterval) && parsedInterval > 0) {
-          refreshInterval = parsedInterval;
-        } else {
-          console.warn("Valor inválido para el intervalo de refresco en localStorage, usando el valor por defecto.");
-        }
-      }
-    } catch (e) {
-      console.error("Error al leer la configuración de refresco de localStorage, usando valores por defecto:", e);
-    }
-
-    if (autoRefreshEnabled) {
-      // Ejecutar las funciones inmediatamente al montar y luego en el intervalo
+    if (autoRefreshEnabled && refreshInterval > 0) {
+      // Llamada inicial al cargar o cuando cambian las dependencias
       fetchCurrentBatteryDetails();
       fetchAllRelatedData();
-      if (!dateRange.from && !dateRange.to) {
-        fetchHistoricalData(undefined, undefined);
-      }
+      // MODIFICACIÓN CLAVE: Llama fetchHistoricalData siempre con el dateRange actual
+      fetchHistoricalData(dateRange.from, dateRange.to);
 
       intervalId = setInterval(() => {
         fetchCurrentBatteryDetails();
         fetchAllRelatedData();
-        // Refresca datos históricos solo si no hay filtros de fecha aplicados
-        if (!dateRange.from && !dateRange.to) {
-          fetchHistoricalData(undefined, undefined);
-        }
+        // MODIFICACIÓN CLAVE: Llama fetchHistoricalData siempre con el dateRange actual
+        fetchHistoricalData(dateRange.from, dateRange.to);
       }, refreshInterval);
     } else {
-      console.log("Refresco automático deshabilitado en la configuración.");
+      console.log("Refresco automático deshabilitado o refreshInterval no válido en la configuración.");
     }
 
     return () => {
       if (intervalId) {
-        clearInterval(intervalId); // Limpieza: detener el intervalo al desmontar o al cambiar las dependencias
+        clearInterval(intervalId);
       }
-      // Limpieza: remover el event listener
-      window.removeEventListener('battSentinelSettingsChanged', handleSettingsChanged); // <-- AÑADIR ESTA LÍNEA
     };
-  }, [fetchCurrentBatteryDetails, fetchAllRelatedData, fetchHistoricalData, settingsVersion]);
-
+  }, [fetchCurrentBatteryDetails, fetchAllRelatedData, fetchHistoricalData, refreshInterval, autoRefreshEnabled, dateRange]); // AÑADIR dateRange como dependencia
 
   // *******************************************************************
-  // ** FIN DE LA SECCIÓN A MODIFICAR PARA APLICAR LAS CONFIGURACIONES DE REFRESH **
+  // ** FIN DE LA SECCIÓN MODIFICADA PARA APLICAR LAS CONFIGURACIONES DE REFRESH **
   // *******************************************************************
 
 
   // Nuevo useEffect para cargar datos históricos cuando cambie la batería o el rango de fechas
+  // Este useEffect ya está bien porque responde a cambios en battery.id y fetchHistoricalData.
+  // fetchHistoricalData tiene dateRange en sus dependencias, así que este useEffect también
+  // se disparará cuando dateRange cambie.
   useEffect(() => {
     if (battery?.id) {
       fetchHistoricalData(dateRange.from, dateRange.to);
@@ -452,6 +426,8 @@ useEffect(() => {
     localStorage.removeItem('battSentinelDateRange');
     localStorage.removeItem('battSentinelVisibleCharts');
 
+    // Se mantiene la llamada explícita aquí para asegurar la recarga inmediata
+    // aunque el useEffect ya lo manejaría. Es una medida de seguridad.
     fetchHistoricalData(newDateRange.from, newDateRange.to);
   };
 
