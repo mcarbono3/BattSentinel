@@ -8,6 +8,8 @@ const BatteryContext = createContext({});
 // Clave para localStorage
 const HIDDEN_BATTERIES_KEY = 'hiddenBatteryIds';
 const LOCAL_BATTERIES_KEY = 'localBatteries'; // Nueva clave para las baterías editadas
+const REFRESH_INTERVAL_KEY = 'battSentinelRefreshIntervalMs';
+const AUTO_REFRESH_ENABLED_KEY = 'battSentinelAutoRefreshEnabled';
 
 export function BatteryProvider({ children }) {
   // Inicializar baterías desde localStorage
@@ -36,6 +38,29 @@ export function BatteryProvider({ children }) {
     }
   });
 
+  // Nuevo estado para el intervalo de refresco, inicializado desde localStorage
+  const [refreshInterval, setRefreshInterval] = useState(() => {
+    try {
+      const storedInterval = localStorage.getItem(REFRESH_INTERVAL_KEY);
+      const parsedInterval = storedInterval ? parseInt(storedInterval, 10) : 420000; // Valor por defecto: 7 minutos
+      return (!isNaN(parsedInterval) && parsedInterval > 0) ? parsedInterval : 420000;
+    } catch (e) {
+      console.error("Error reading refresh interval from localStorage, using default:", e);
+      return 420000; // Valor por defecto en caso de error
+    }
+  });
+
+  // <-- NUEVO ESTADO para autoRefreshEnabled, inicializado desde localStorage
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(() => {
+    try {
+      const storedEnabled = localStorage.getItem(AUTO_REFRESH_ENABLED_KEY);
+      return storedEnabled !== null ? JSON.parse(storedEnabled) : true; // Por defecto: habilitado
+    } catch (e) {
+      console.error("Error reading autoRefreshEnabled from localStorage, using default:", e);
+      return true;
+    }
+  });
+
   // Guardar hiddenBatteryIds en localStorage cada vez que cambie
   useEffect(() => {
     localStorage.setItem(HIDDEN_BATTERIES_KEY, JSON.stringify(Array.from(hiddenBatteryIds)));
@@ -50,12 +75,32 @@ export function BatteryProvider({ children }) {
     }
   }, [batteries]);
 
-  // Cargar baterías desde la API solo si el usuario está autenticado y no hay datos locales
-useEffect(() => {
-  if (isAuthenticated) {
-    loadBatteriesFromAPI();
-  }
-}, [isAuthenticated]);
+  // Guardar refreshInterval en localStorage cada vez que cambie
+  useEffect(() => {
+    try {
+      localStorage.setItem(REFRESH_INTERVAL_KEY, String(refreshInterval));
+    } catch (e) {
+      console.error("Failed to save refresh interval to localStorage", e);
+    }
+  }, [refreshInterval]);
+
+  // <-- NUEVO useEffect para guardar autoRefreshEnabled en localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(AUTO_REFRESH_ENABLED_KEY, JSON.stringify(autoRefreshEnabled));
+    } catch (e) {
+      console.error("Failed to save autoRefreshEnabled to localStorage", e);
+    }
+  }, [autoRefreshEnabled]);
+
+  // Cargar baterías desde la API y fusionar con datos locales
+  // Se llama cada vez que el estado de autenticación cambia, para asegurar que los datos
+  // estén actualizados y fusionados correctamente con las ediciones locales.
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadBatteriesFromAPI();
+    }
+  }, [isAuthenticated]); // Removido 'batteries.length' de las dependencias
 
   const loadBatteriesFromAPI = async () => {
     try {
@@ -63,13 +108,43 @@ useEffect(() => {
       setError(null);
       const response = await batteryAPI.getBatteries();
       if (response.success) {
-        setBatteries(response.data);
+        const apiBatteries = response.data;
+
+        // Crear un mapa de las baterías actuales (que incluyen ediciones locales) por ID
+        // Esto usa el estado 'batteries' actual, que ya ha sido inicializado desde localStorage
+        const currentLocalBatteriesMap = new Map(batteries.map(b => [b.id, b]));
+
+        const finalBatteriesMap = new Map();
+
+        // Primero, añadir todas las baterías de la API al mapa
+        apiBatteries.forEach(apiBattery => {
+          finalBatteriesMap.set(apiBattery.id, apiBattery);
+        });
+
+        // Luego, fusionar con las baterías locales. Si hay una ID coincidente,
+        // la versión local (con sus ediciones) sobrescribe la versión de la API.
+        // Si es una batería nueva que solo existe localmente, también se añade.
+        currentLocalBatteriesMap.forEach(localBattery => {
+          finalBatteriesMap.set(localBattery.id, localBattery);
+        });
+
+        setBatteries(Array.from(finalBatteriesMap.values()));
       } else {
         setError(response.error);
+        // Si hay un error al cargar de la API, se asegura de usar lo que esté en localStorage
+        const storedBatteries = localStorage.getItem(LOCAL_BATTERIES_KEY);
+        if (storedBatteries) {
+          setBatteries(JSON.parse(storedBatteries));
+        }
       }
     } catch (error) {
       setError('Error al cargar las baterías');
       console.error('Error loading batteries:', error);
+      // Si la llamada a la API falla completamente, recurre a localStorage
+      const storedBatteries = localStorage.getItem(LOCAL_BATTERIES_KEY);
+      if (storedBatteries) {
+        setBatteries(JSON.parse(storedBatteries));
+      }
     } finally {
       setLoading(false);
     }
@@ -358,6 +433,10 @@ useEffect(() => {
     hiddenBatteryIds,
     toggleBatteryVisibility,
     getVisibleBatteries,
+    refreshInterval,
+    setRefreshInterval,
+    autoRefreshEnabled, // <-- EXPUERTO autoRefreshEnabled en el contexto
+    setAutoRefreshEnabled, // 
   };
 
   return (
