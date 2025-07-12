@@ -67,6 +67,33 @@ def parse_iso_date(date_string):
         current_app.logger.error(f"Error al parsear la cadena de fecha '{date_string}': {e}")
         raise ValueError(f"Formato de fecha ISO inválido: {date_string}") from e
 
+def parse_float_or_none(value):
+    """
+    Convierte un valor a float o retorna None si es una cadena vacía, None,
+    o no se puede convertir a float.
+    """
+    if value is None or value == '':
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        current_app.logger.warning(f"No se pudo convertir '{value}' a float. Estableciendo a None.")
+        return None
+
+def parse_int_or_none(value):
+    """
+    Convierte un valor a int o retorna None si es una cadena vacía, None,
+    o no se puede convertir a int.
+    """
+    if value is None or value == '':
+        return None
+    try:
+        # Convertir a float primero para manejar números como "100.0"
+        return int(float(value))
+    except (ValueError, TypeError):
+        current_app.logger.warning(f"No se pudo convertir '{value}' a entero. Estableciendo a None.")
+        return None
+
 def generate_mock_battery_data():
     """Genera datos de batería simulados para propósitos de demostración."""
     now = datetime.now(timezone.utc)
