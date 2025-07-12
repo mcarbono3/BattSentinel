@@ -12,15 +12,21 @@ class Battery(db.Model):
     
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False)
-    model = Column(String(100))
-    manufacturer = Column(String(100))
+    model = Column(String(100), unique=True)
+    manufacturer = Column(String(100), unique=True)
     serial_number = Column(String(100), unique=True)
     full_charge_capacity = Column(Float, nullable=True)
+    full_charge_capacity_unit = Column(String(10), nullable=True) # Nueva columna
+    nominal_capacity = Column(Float, nullable=True) # Nueva columna
+    nominal_capacity_unit = Column(String(10), nullable=True) # Nueva columna
     designvoltage = Column(Float, nullable=True)  
-    chemistry = Column(String(50), default='Li-ion')
+    chemistry = Column(String(50), unique=True)
     installation_date = Column(DateTime, default=datetime.utcnow)
     location = Column(String(200))
     status = Column(String(50), default='active')
+    last_maintenance_date = Column(DateTime, nullable=True) # Nueva columna
+    warranty_expiry_date = Column(DateTime, nullable=True) # Nueva columna
+    cycles = Column(Integer, nullable=True) # Nueva columna
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -37,11 +43,17 @@ class Battery(db.Model):
             'manufacturer': self.manufacturer,
             'serial_number': self.serial_number,
             'full_charge_capacity': self.full_charge_capacity,
+            'full_charge_capacity_unit': self.full_charge_capacity_unit, # Añadido
+            'nominal_capacity': self.nominal_capacity, # Añadido
+            'nominal_capacity_unit': self.nominal_capacity_unit, # Añadido
             'designvoltage': self.designvoltage,
             'chemistry': self.chemistry,
             'installation_date': self.installation_date.isoformat() if self.installation_date else None,
             'location': self.location,
             'status': self.status,
+            'last_maintenance_date': self.last_maintenance_date.isoformat() if self.last_maintenance_date else None, # Añadido
+            'warranty_expiry_date': self.warranty_expiry_date.isoformat() if self.warranty_expiry_date else None, # Añadido
+            'cycles': self.cycles, # Añadido
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
