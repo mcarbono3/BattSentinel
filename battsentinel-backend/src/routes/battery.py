@@ -181,27 +181,32 @@ def update_battery(battery_id):
 
         battery.name = data.get('name', battery.name)
         battery.chemistry = data.get('chemistry', battery.chemistry)
-        battery.designvoltage = data.get('designvoltage', battery.designvoltage)
-        battery.full_charge_capacity = data.get('full_charge_capacity', battery.full_charge_capacity)
         battery.full_charge_capacity_unit = data.get('full_charge_capacity_unit', battery.full_charge_capacity_unit)
         battery.status = data.get('status', battery.status)
         battery.model = data.get('model', battery.model)
         battery.manufacturer = data.get('manufacturer', battery.manufacturer)
         battery.serial_number = data.get('serial_number', battery.serial_number)        
         battery.location = data.get('location', battery.location)
-        battery.nominal_capacity = data.get('nominal_capacity', battery.nominal_capacity)        
-        battery.nominal_capacity_unit = data.get('nominal_capacity_unit', battery.nominal_capacity_unit)
-        battery.cycles = data.get('cycles', battery.cycles)    
+        battery.nominal_capacity_unit = data.get('nominal_capacity_unit', battery.nominal_capacity_unit)   
 
-        # Manejo de fechas usando la nueva función auxiliar
-        if 'installation_date' in data and data['installation_date'] is not None:
+        # Manejo de campos numéricos usando las funciones auxiliares
+        # Se comprueba si la clave existe en 'data' antes de intentar parsear
+        if 'designvoltage' in data:
+            battery.designvoltage = parse_float_or_none(data['designvoltage'])
+        if 'full_charge_capacity' in data:
+            battery.full_charge_capacity = parse_float_or_none(data['full_charge_capacity'])
+        if 'nominal_capacity' in data:
+            battery.nominal_capacity = parse_float_or_none(data['nominal_capacity'])
+        if 'cycles' in data:
+            battery.cycles = parse_int_or_none(data['cycles'])
+
+        # Manejo de fechas usando la función parse_iso_date
+        if 'installation_date' in data:
             battery.installation_date = parse_iso_date(data['installation_date'])
-            
-        if 'last_maintenance_date' in data and data['last_maintenance_date'] is not None:
+        if 'last_maintenance_date' in data:
             battery.last_maintenance_date = parse_iso_date(data['last_maintenance_date'])
-
-        if 'warranty_expiry_date' in data and data['warranty_expiry_date'] is not None:
-            battery.warranty_expiry_date = parse_iso_date(data['warranty_expiry_date'])              
+        if 'warranty_expiry_date' in data:
+            battery.warranty_expiry_date = parse_iso_date(data['warranty_expiry_date'])          
 
         db.session.commit()
         current_app.logger.info(f"Batería con ID {battery_id} actualizada.")
