@@ -135,10 +135,15 @@ def update_battery(battery_id):
             return jsonify({'success': False, 'error': 'No se proporcionaron datos para actualizar'}), 400
 
         battery.name = data.get('name', battery.name)
-        battery.type = data.get('type', battery.type)
-        battery.nominal_voltage = data.get('nominal_voltage', battery.nominal_voltage)
-        battery.capacity_ah = data.get('capacity_ah', battery.capacity_ah)
-        battery.last_update = datetime.now(timezone.utc) # Actualizar el timestamp
+        battery.chemistry = data.get('chemistry', battery.chemistry)
+        battery.designvoltage = data.get('designvoltage', battery.designvoltage)
+        battery.full_charge_capacity = data.get('full_charge_capacity', battery.full_charge_capacity)
+        battery.status = data.get('status', battery.status)
+        battery.model = data.get('model', battery.model)
+        battery.manufacturer = data.get('manufacturer', battery.manufacturer)
+        battery.serial_number = data.get('serial_number', battery.serial_number)
+        battery.installation_date = datetime.fromisoformat(data.get('installation_date'))
+        battery.location = data.get('location', battery.location)
 
         db.session.commit()
         current_app.logger.info(f"Batería con ID {battery_id} actualizada.")
