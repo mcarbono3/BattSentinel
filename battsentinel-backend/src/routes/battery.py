@@ -49,6 +49,24 @@ def get_real_battery_data():
         current_app.logger.error(f"Error general al obtener datos de la batería: {e}\n{error_trace}")
         return {'success': False, 'error': f'Error interno del servidor al obtener datos de la batería: {e}'}
 
+def parse_iso_date(date_string):
+
+    if not date_string:
+        return None
+    try:      
+        if date_string.endswith('Z'):
+            date_string = date_string[:-1] + '+00:00'
+            
+        dt_obj = datetime.fromisoformat(date_string)
+
+        if dt_obj.tzinfo is None:
+            # Si el string original tenía 'Z' o +00:00, asumimos UTC
+            return dt_obj.replace(tzinfo=timezone.utc)
+        return dt_obj
+    except ValueError as e:
+        current_app.logger.error(f"Error al parsear la cadena de fecha '{date_string}': {e}")
+        raise ValueError(f"Formato de fecha ISO inválido: {date_string}") from e
+
 def generate_mock_battery_data():
     """Genera datos de batería simulados para propósitos de demostración."""
     now = datetime.now(timezone.utc)
@@ -138,12 +156,25 @@ def update_battery(battery_id):
         battery.chemistry = data.get('chemistry', battery.chemistry)
         battery.designvoltage = data.get('designvoltage', battery.designvoltage)
         battery.full_charge_capacity = data.get('full_charge_capacity', battery.full_charge_capacity)
+        battery.full_charge_capacity_unit = data.get('full_charge_capacity_unit', battery.full_charge_capacity_unit)
         battery.status = data.get('status', battery.status)
         battery.model = data.get('model', battery.model)
         battery.manufacturer = data.get('manufacturer', battery.manufacturer)
-        battery.serial_number = data.get('serial_number', battery.serial_number)
-        battery.installation_date = datetime.fromisoformat(data.get('installation_date'))
+        battery.serial_number = data.get('serial_number', battery.serial_number)        
         battery.location = data.get('location', battery.location)
+        battery.nominal_capacity = data.get('nominal_capacity', battery.nominal_capacity)        
+        battery.nominal_capacity_unit = data.get('nominal_capacity_unit', battery.nominal_capacity_unit)
+        battery.cycles = data.get('cycles', battery.cycles)    
+
+        # Manejo de fechas usando la nueva función auxiliar
+        if 'installation_date' in data and data['installation_date'] is not None:
+            battery.installation_date = parse_iso_date(data['installation_date'])
+            
+        if 'last_maintenance_date' in data and data['last_maintenance_date'] is not None:
+            battery.last_maintenance_date = parse_iso_date(data['last_maintenance_date'])
+
+        if 'warranty_expiry_date' in data and data['warranty_expiry_date'] is not None:
+            battery.warranty_expiry_date = parse_iso_date(data['warranty_expiry_date'])              
 
         db.session.commit()
         current_app.logger.info(f"Batería con ID {battery_id} actualizada.")
