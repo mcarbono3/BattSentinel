@@ -138,8 +138,20 @@ def create_battery():
         new_battery = Battery(
             name=name,
             chemistry=data.get('chemistry'),
-            designvoltage=data.get('designvoltage'),
-            full_charge_capacity=data.get('full_charge_capacity')
+            designvoltage=parse_float_or_none(data.get('designvoltage')),
+            full_charge_capacity=parse_float_or_none(data.get('full_charge_capacity')),
+            full_charge_capacity_unit=data.get('full_charge_capacity_unit'),
+            nominal_capacity=parse_float_or_none(data.get('nominal_capacity')),
+            nominal_capacity_unit=data.get('nominal_capacity_unit'),
+            model=data.get('model'),
+            manufacturer=data.get('manufacturer'),
+            serial_number=data.get('serial_number'),
+            installation_date=parse_iso_date(data.get('installation_date')),
+            location=data.get('location'),
+            status=data.get('status', 'active'), # Default 'active' si no se provee
+            last_maintenance_date=parse_iso_date(data.get('last_maintenance_date')),
+            warranty_expiry_date=parse_iso_date(data.get('warranty_expiry_date')),
+            cycles=parse_int_or_none(data.get('cycles'))            
         )
         db.session.add(new_battery)
         db.session.commit()
