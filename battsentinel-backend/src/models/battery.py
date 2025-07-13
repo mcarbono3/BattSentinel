@@ -12,25 +12,25 @@ class Battery(db.Model):
     
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False)
-    model = Column(String(100), unique=True)
-    manufacturer = Column(String(100), unique=True)
-    serial_number = Column(String(100), unique=True)
+    model = Column(String(100))
+    manufacturer = Column(String(100))
+    serial_number = Column(String(100))
     full_charge_capacity = Column(Float, nullable=True)
     full_charge_capacity_unit = Column(String(10), nullable=True) # Nueva columna
     nominal_capacity = Column(Float, nullable=True) # Nueva columna
-    nominal_capacity_unit = Column(String(10), nullable=True) # Nueva columna
-    designvoltage = Column(Float, nullable=True)  
+    nominal_capacity_unit = Column(String(10)) # Nueva columna
+    designvoltage = Column(Float)  
     chemistry = Column(String(50))
     installation_date = Column(DateTime, default=datetime.utcnow)
     location = Column(String(200))
     status = Column(String(50), default='active')
-    last_maintenance_date = Column(DateTime, nullable=True) # Nueva columna
-    warranty_expiry_date = Column(DateTime, nullable=True) # Nueva columna
+    last_maintenance_date = Column(DateTime) # Nueva columna
+    warranty_expiry_date = Column(DateTime) # Nueva columna
     cycles = Column(Integer, nullable=True) # Nueva columna
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    monitoring_source = db.Column(db.String(100), nullable=True)
-    description = db.Column(db.Text, nullable=True)
+    monitoring_source = db.Column(db.String(100))
+    description = db.Column(db.Text)
     
     # Relaciones
     data_points = relationship('BatteryData', backref='battery', lazy=True, cascade='all, delete-orphan')
