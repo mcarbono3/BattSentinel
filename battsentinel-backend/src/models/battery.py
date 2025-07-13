@@ -15,9 +15,9 @@ class Battery(db.Model):
     model = Column(String(100))
     manufacturer = Column(String(100))
     serial_number = Column(String(100))
-    full_charge_capacity = Column(Float, nullable=True)
-    full_charge_capacity_unit = Column(String(10), nullable=True) # Nueva columna
-    nominal_capacity = Column(Float, nullable=True) # Nueva columna
+    full_charge_capacity = Column(Float)
+    full_charge_capacity_unit = Column(String(10)) # Nueva columna
+    nominal_capacity = Column(Float) # Nueva columna
     nominal_capacity_unit = Column(String(10)) # Nueva columna
     designvoltage = Column(Float)  
     chemistry = Column(String(50))
