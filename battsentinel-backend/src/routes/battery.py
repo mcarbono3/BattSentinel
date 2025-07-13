@@ -742,18 +742,28 @@ def add_maintenance_record(battery_id):
         if not data:
             return jsonify({'success': False, 'error': 'No se proporcionaron datos para el registro de mantenimiento'}), 400
 
-        record_type = data.get('record_type')
+        maintenance_type = data.get('record_type')
         description = data.get('description')
         performed_at = data.get('performed_at')
+        performed_by = data.get('performed_by')
+        cost = data.get('cost')
+        parts_replaced = data.get('parts_replaced')
+        notes = data.get('notes')
+        next_maintenance_due = data.get('next_maintenance_due')
 
         if not all([record_type, description, performed_at]):
             return jsonify({'success': False, 'error': 'Tipo de registro, descripción y fecha de realización son requeridos'}), 400
 
         new_record = MaintenanceRecord(
             battery_id=battery_id,
-            record_type=record_type,
+            maintenance_type=maintenance_type,
             description=description,
-            performed_at=datetime.fromisoformat(performed_at).replace(tzinfo=timezone.utc)
+            performed_at=datetime.fromisoformat(performed_at).replace(tzinfo=timezone.utc),
+            performed_by=performed_by,
+            cost=cost,
+            parts_replaced=parts_replaced,
+            notes=notes,
+            next_maintenance_due=next_maintenance_due
         )
         db.session.add(new_record)
         db.session.commit()
