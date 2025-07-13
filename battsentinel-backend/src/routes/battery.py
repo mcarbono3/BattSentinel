@@ -151,7 +151,9 @@ def create_battery():
             status=data.get('status', 'active'), # Default 'active' si no se provee
             last_maintenance_date=parse_iso_date(data.get('last_maintenance_date')),
             warranty_expiry_date=parse_iso_date(data.get('warranty_expiry_date')),
-            cycles=parse_int_or_none(data.get('cycles'))            
+            cycles=parse_int_or_none(data.get('cycles')),
+            monitoring_source=data.get('monitoring_source'),
+            description=data.get('description')
         )
         db.session.add(new_battery)
         db.session.commit()
@@ -199,7 +201,9 @@ def update_battery(battery_id):
         battery.manufacturer = data.get('manufacturer', battery.manufacturer)
         battery.serial_number = data.get('serial_number', battery.serial_number)        
         battery.location = data.get('location', battery.location)
-        battery.nominal_capacity_unit = data.get('nominal_capacity_unit', battery.nominal_capacity_unit)   
+        battery.nominal_capacity_unit = data.get('nominal_capacity_unit', battery.nominal_capacity_unit)
+        battery.monitoring_source = data.get('monitoring_source', battery.monitoring_source)
+        battery.description = data.get('description', battery.description)
 
         # Manejo de campos numéricos usando las funciones auxiliares
         # Se comprueba si la clave existe en 'data' antes de intentar parsear
