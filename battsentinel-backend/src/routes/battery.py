@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify, current_app, send_file
 from datetime import datetime, timezone
 # Asegúrate de importar 'and_' si planeas combinar múltiples filtros complejos,
 # aunque para este caso chaining .filter() es suficiente.
-# from sqlalchemy import and_ # <-- No es estrictamente necesario para este filtro, pero útil para futuros complejos
+from sqlalchemy import and_
 
 import os
 import pandas as pd
