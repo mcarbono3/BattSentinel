@@ -29,10 +29,15 @@ class Battery(db.Model):
     cycles = Column(Integer, nullable=True) # Nueva columna
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    monitoring_source = db.Column(db.String(100), nullable=True)
+    description = db.Column(db.Text, nullable=True)
     
     # Relaciones
     data_points = relationship('BatteryData', backref='battery', lazy=True, cascade='all, delete-orphan')
     alerts = relationship('Alert', backref='battery', lazy=True, cascade='all, delete-orphan')
+    analysis_results = db.relationship('AnalysisResult', backref='battery', lazy=True, cascade='all, delete-orphan')
+    thermal_images = db.relationship('ThermalImage', backref='battery', lazy=True, cascade='all, delete-orphan')
+    maintenance_records = db.relationship('MaintenanceRecord', backref='battery', lazy=True, cascade='all, delete-orphan')
     
     def to_dict(self):
         # 1. Inicializar el diccionario con los campos básicos de la batería
@@ -55,7 +60,9 @@ class Battery(db.Model):
             'warranty_expiry_date': self.warranty_expiry_date.isoformat() if self.warranty_expiry_date else None, # Añadido
             'cycles': self.cycles, # Añadido
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'monitoring_source': self.monitoring_source,
+            'description': self.description
         }
 
         # 2. LÓGICA PARA OBTENER EL ÚLTIMO PUNTO DE DATOS
