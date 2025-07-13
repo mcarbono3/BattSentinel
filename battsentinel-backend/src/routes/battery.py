@@ -22,6 +22,7 @@ from src.main import db
 from src.models.battery import Battery, BatteryData, Alert, AnalysisResult, ThermalImage, MaintenanceRecord # Asegúrate de importar todos los modelos necesarios
 from src.services.windows_battery import windows_battery_service
 
+BATCH_SIZE = 1000
 battery_bp = Blueprint('battery', __name__)
 
 # Extensiones permitidas para carga de datos y imágenes
