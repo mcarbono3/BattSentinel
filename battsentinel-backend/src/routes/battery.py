@@ -235,21 +235,74 @@ def update_battery(battery_id):
 
 @battery_bp.route('/batteries/<int:battery_id>', methods=['DELETE'])
 def delete_battery(battery_id):
-    """Eliminar una batería."""
+    """ Eliminar una batería y todos sus datos relacionados de manera optimizada y robusta."""
     try:
         battery = Battery.query.get(battery_id)
         if not battery:
             current_app.logger.warning(f"Intento de eliminar batería con ID {battery_id} que no existe.")
             return jsonify({'success': False, 'error': 'Batería no encontrada'}), 404
 
+        current_app.logger.info(f"Iniciando eliminación optimizada para batería con ID {battery_id}...")
+
+        # 1. Eliminar registros de BatteryData por lotes (la tabla más probable con muchos datos)
+        total_data_deleted = 0
+        while True:
+
+            data_to_delete = db.session.query(BatteryData.id).\
+                                filter(BatteryData.battery_id == battery_id).\
+                                limit(BATCH_SIZE).all()
+            
+            if not data_to_delete:
+                break # No hay más datos para eliminar
+            
+            # Extraer solo los IDs
+            data_ids = [data.id for data in data_to_delete]
+
+            # Realiza la eliminación en lote
+            deleted_count = db.session.query(BatteryData).\
+                                filter(BatteryData.id.in_(data_ids)).\
+                                delete(synchronize_session=False) # 'False' indica no sincronizar la sesión, más eficiente para bulk operations
+            
+            db.session.commit() # Confirma cada lote para liberar recursos y evitar transacciones largas
+            total_data_deleted += deleted_count
+            current_app.logger.info(f"Eliminados {deleted_count} registros de BatteryData para batería {battery_id}. Total: {total_data_deleted}")
+
+            if deleted_count < BATCH_SIZE: # Si eliminamos menos que el tamaño del lote, significa que no quedan más
+                break
+        
+        current_app.logger.info(f"Total de registros de BatteryData eliminados para batería {battery_id}: {total_data_deleted}")
+
+        # Eliminar Alertas
+        alerts_deleted = db.session.query(Alert).filter(Alert.battery_id == battery_id).delete(synchronize_session=False)
+        current_app.logger.info(f"Eliminados {alerts_deleted} registros de Alertas para batería {battery_id}.")
+
+        # Eliminar Resultados de Análisis
+        analysis_deleted = db.session.query(AnalysisResult).filter(AnalysisResult.battery_id == battery_id).delete(synchronize_session=False)
+        current_app.logger.info(f"Eliminados {analysis_deleted} registros de AnalysisResult para batería {battery_id}.")
+
+        # Eliminar Imágenes Térmicas
+        thermal_images_deleted = db.session.query(ThermalImage).filter(ThermalImage.battery_id == battery_id).delete(synchronize_session=False)
+        current_app.logger.info(f"Eliminados {thermal_images_deleted} registros de ThermalImage para batería {battery_id}.")
+
+        # Eliminar Registros de Mantenimiento
+        maintenance_deleted = db.session.query(MaintenanceRecord).filter(MaintenanceRecord.battery_id == battery_id).delete(synchronize_session=False)
+        current_app.logger.info(f"Eliminados {maintenance_deleted} registros de MaintenanceRecord para batería {battery_id}.")
+
+        # Confirma todas las eliminaciones de tablas relacionadas
+        db.session.commit() 
+        current_app.logger.info(f"Todos los registros relacionados para batería {battery_id} han sido eliminados.")
+
+        # 3. Finalmente, eliminar la batería principal
         db.session.delete(battery)
         db.session.commit()
-        current_app.logger.info(f"Batería con ID {battery_id} eliminada.")
-        return jsonify({'success': True, 'message': 'Batería eliminada correctamente'})
+        current_app.logger.info(f"Batería con ID {battery_id} eliminada correctamente.")
+        
+        return jsonify({'success': True, 'message': 'Batería y todos sus datos relacionados eliminados correctamente'})
+
     except Exception as e:
-        db.session.rollback()
+        db.session.rollback() # Asegura que si algo falla, se revierte todo lo hecho
         error_trace = traceback.format_exc()
-        current_app.logger.error(f"Error al eliminar batería {battery_id}: {e}\n{error_trace}")
+        current_app.logger.error(f"Error crítico al eliminar batería {battery_id}: {e}\n{error_trace}")
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
 @battery_bp.route('/batteries/<int:battery_id>/data', methods=['GET'])
@@ -265,6 +318,30 @@ def get_battery_data(battery_id):
     except Exception as e:
         error_trace = traceback.format_exc()
         current_app.logger.error(f"Error al obtener datos de batería para {battery_id}: {e}\n{error_trace}")
+        return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
+
+# NUEVO ENDPOINT: Verificar si la batería tiene datos históricos
+@battery_bp.route('/batteries/<int:battery_id>/has_historical_data', methods=['GET'])
+def has_historical_data(battery_id):
+    """
+    Verifica de manera eficiente si una batería específica tiene algún dato histórico cargado.
+    Devuelve True si hay datos, False en caso contrario.
+    """
+    try:
+        # Usamos .first() para ver si existe al menos un registro.
+        # No necesitamos cargar el objeto completo, solo verificar su existencia.
+        exists = db.session.query(BatteryData.id).filter_by(battery_id=battery_id).first() is not None
+        
+        if exists:
+            current_app.logger.debug(f"Batería {battery_id} TIENE datos históricos.")
+            return jsonify({'success': True, 'has_data': True, 'message': 'La batería tiene datos históricos.'})
+        else:
+            current_app.logger.debug(f"Batería {battery_id} NO tiene datos históricos.")
+            return jsonify({'success': True, 'has_data': False, 'message': 'La batería no tiene datos históricos.'})
+
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Error al verificar datos históricos para batería {battery_id}: {e}\n{error_trace}")
         return jsonify({'success': False, 'error': str(e), 'traceback': error_trace}), 500
 
 @battery_bp.route('/batteries/<int:battery_id>/data', methods=['POST'])
@@ -346,7 +423,7 @@ def get_battery_summary(battery_id):
 
 @battery_bp.route('/batteries/<int:battery_id>/upload_data', methods=['POST'])
 def upload_battery_data(battery_id):
-    """Subir un archivo con datos históricos de la batería."""
+    """Subir un archivo con datos históricos de la batería, evitando duplicación."""
     try:
         battery = Battery.query.get(battery_id)
         if not battery:
@@ -361,50 +438,93 @@ def upload_battery_data(battery_id):
 
         if file and allowed_file(file.filename, ALLOWED_EXTENSIONS):
             df = None
-            if file.filename.endswith('.csv'):
+            # Esta condición maneja tanto '.csv' como '.txt' si se asume que los .txt son tipo CSV
+            if file.filename.endswith('.csv') or file.filename.endswith('.txt'):
                 df = pd.read_csv(io.StringIO(file.stream.read().decode('utf-8')))
             elif file.filename.endswith(('.xlsx', '.xls')):
                 df = pd.read_excel(file.stream)
             else:
-                return jsonify({'success': False, 'error': 'Formato de archivo no soportado. Use CSV o Excel.'}), 400
+                return jsonify({'success': False, 'error': 'Formato de archivo no soportado. Use CSV, TXT o Excel.'}), 400
 
-            # Asumir que el archivo tiene columnas como: timestamp, voltage, current, temperature, soc, soh, cycles, status
-            # Realizar validaciones básicas de columnas
             required_cols = ['timestamp', 'voltage', 'current', 'temperature', 'soc', 'soh', 'cycles', 'status']
             if not all(col in df.columns for col in required_cols):
                 return jsonify({'success': False, 'error': f"El archivo debe contener las columnas: {', '.join(required_cols)}"}), 400
 
-            # Convertir a formato adecuado e insertar en la base de datos
             data_to_insert = []
+            
+            new_timestamps = []
+            for index, row in df.iterrows():
+                try:
+                    timestamp = pd.to_datetime(row['timestamp'], errors='coerce')
+                    if pd.isna(timestamp):
+                        current_app.logger.warning(f"Fila {index}: Timestamp inválido, omitiendo fila para la comprobación de duplicados.")
+                        continue
+                    new_timestamps.append(timestamp.to_pydatetime().replace(tzinfo=timezone.utc))
+                except Exception as ts_e:
+                    current_app.logger.error(f"Error al procesar timestamp en fila {index}: {ts_e}")
+                    continue
+            
+            if not new_timestamps:
+                return jsonify({'success': False, 'error': 'No se encontraron timestamps válidos en el archivo.'}), 400
+
+            existing_records = db.session.query(BatteryData.timestamp).\
+                                filter(and_(BatteryData.battery_id == battery_id,
+                                            BatteryData.timestamp.in_(new_timestamps))).\
+                                all()
+            
+            existing_timestamps_set = {record.timestamp for record in existing_records}
+            current_app.logger.info(f"Timestamps existentes encontrados para la batería {battery_id}: {len(existing_timestamps_set)}")
+
+            inserted_count = 0
+            skipped_count = 0
             for index, row in df.iterrows():
                 try:
                     timestamp = pd.to_datetime(row['timestamp'], errors='coerce')
                     if pd.isna(timestamp):
                         current_app.logger.warning(f"Fila {index}: Timestamp inválido, omitiendo fila.")
+                        skipped_count += 1
                         continue
+                    
+                    formatted_timestamp = timestamp.to_pydatetime().replace(tzinfo=timezone.utc)
 
-                    data_to_insert.append(BatteryData(
-                        battery_id=battery_id,
-                        timestamp=timestamp.to_pydatetime().replace(tzinfo=timezone.utc),
-                        voltage=row.get('voltage'),
-                        current=row.get('current'),
-                        temperature=row.get('temperature'),
-                        soc=row.get('soc'),
-                        soh=row.get('soh'),
-                        cycles=row.get('cycles'),
-                        status=row.get('status')
-                    ))
+                    if formatted_timestamp not in existing_timestamps_set:
+                        data_to_insert.append(BatteryData(
+                            battery_id=battery_id,
+                            timestamp=formatted_timestamp,
+                            voltage=row.get('voltage'),
+                            current=row.get('current'),
+                            temperature=row.get('temperature'),
+                            soc=row.get('soc'),
+                            soh=row.get('soh'),
+                            cycles=row.get('cycles'),
+                            status=row.get('status')
+                        ))
+                    else:
+                        skipped_count += 1
+                        current_app.logger.info(f"Fila {index}: Registro con timestamp {formatted_timestamp} ya existe para batería {battery_id}, omitiendo.")
+
                 except Exception as row_e:
                     current_app.logger.error(f"Error procesando fila {index} del archivo: {row_e}")
+                    skipped_count += 1
                     continue
 
             if data_to_insert:
                 db.session.bulk_save_objects(data_to_insert)
                 db.session.commit()
-                current_app.logger.info(f"Datos del archivo '{file.filename}' cargados para la batería {battery_id}. {len(data_to_insert)} registros insertados.")
-                return jsonify({'success': True, 'message': f'Archivo {file.filename} cargado y datos procesados correctamente.', 'records_inserted': len(data_to_insert)})
+                inserted_count = len(data_to_insert)
+                current_app.logger.info(f"Datos del archivo '{file.filename}' cargados para la batería {battery_id}. {inserted_count} registros insertados, {skipped_count} registros omitidos.")
+                return jsonify({
+                    'success': True,
+                    'message': f'Archivo {file.filename} cargado y datos procesados correctamente.',
+                    'records_inserted': inserted_count,
+                    'records_skipped_duplicates': skipped_count
+                })
             else:
-                return jsonify({'success': False, 'error': 'No se pudieron procesar registros válidos del archivo.'}), 400
+                return jsonify({
+                    'success': False,
+                    'error': 'No se encontraron registros nuevos para insertar o todos eran duplicados.',
+                    'records_skipped_duplicates': skipped_count
+                }), 400
         else:
             return jsonify({'success': False, 'error': 'Tipo de archivo no permitido o archivo no encontrado.'}), 400
     except Exception as e:
