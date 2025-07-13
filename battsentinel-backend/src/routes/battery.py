@@ -742,7 +742,7 @@ def add_maintenance_record(battery_id):
         if not data:
             return jsonify({'success': False, 'error': 'No se proporcionaron datos para el registro de mantenimiento'}), 400
 
-        maintenance_type = data.get('record_type')
+        maintenance_type = data.get('maintenance_type')
         description = data.get('description')
         performed_at = data.get('performed_at')
         performed_by = data.get('performed_by')
@@ -751,7 +751,7 @@ def add_maintenance_record(battery_id):
         notes = data.get('notes')
         next_maintenance_due = data.get('next_maintenance_due')
 
-        if not all([record_type, description, performed_at]):
+        if not all([maintenance_type, description, performed_at]):
             return jsonify({'success': False, 'error': 'Tipo de registro, descripción y fecha de realización son requeridos'}), 400
 
         new_record = MaintenanceRecord(
