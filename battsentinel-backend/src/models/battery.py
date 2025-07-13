@@ -20,7 +20,7 @@ class Battery(db.Model):
     nominal_capacity = Column(Float, nullable=True) # Nueva columna
     nominal_capacity_unit = Column(String(10), nullable=True) # Nueva columna
     designvoltage = Column(Float, nullable=True)  
-    chemistry = Column(String(50), unique=True)
+    chemistry = Column(String(50))
     installation_date = Column(DateTime, default=datetime.utcnow)
     location = Column(String(200))
     status = Column(String(50), default='active')
