@@ -99,6 +99,7 @@ class BatteryData(db.Model):
     voltage = Column(Float, nullable=True)
     current = Column(Float, nullable=True)
     temperature = Column(Float, nullable=True)
+    capacity = Column(Float, nullable=True)
     soc = Column(Float, nullable=True)  # State of Charge
     soh = Column(Float, nullable=True)  # State of Health
     cycles = Column(Integer, default=0, nullable=True)    
@@ -129,6 +130,7 @@ class BatteryData(db.Model):
             'voltage': self.voltage,
             'current': self.current,
             'temperature': self.temperature,
+            'capacity': self.capacity, 
             'soc': self.soc,
             'soh': self.soh,
             'cycles': self.cycles,
