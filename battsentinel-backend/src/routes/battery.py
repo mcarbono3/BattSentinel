@@ -457,7 +457,7 @@ def upload_battery_data(battery_id):
             current_app.logger.error(f"Formato de archivo inesperado para '{file.filename}' después de la verificación de extensiones.")
             return jsonify({'success': False, 'error': 'Formato de archivo no soportado. Use CSV, TXT o Excel.'}), 400
 
-        required_cols = ['timestamp', 'voltage', 'current', 'temperature', 'soc', 'soh', 'cycles', 'status']
+        required_cols = ['timestamp', 'voltage']
         # Verifica si todas las columnas requeridas están presentes en el DataFrame
         if not all(col in df.columns for col in required_cols):
             missing_cols = [col for col in required_cols if col not in df.columns]
@@ -488,6 +488,7 @@ def upload_battery_data(battery_id):
                     timestamp=formatted_timestamp,
                     voltage=row.get('voltage'),
                     current=row.get('current'),
+                    capacity=row.get('capacity'),
                     temperature=row.get('temperature'),
                     soc=row.get('soc'),
                     soh=row.get('soh'),
