@@ -6,8 +6,6 @@ Implementa endpoints para sistema de doble nivel:
 - Nivel 1: Monitoreo Continuo (Ligero y Eficiente)
 - Nivel 2: Análisis Avanzado (Profundo y Preciso)
 
-Autor: Manus AI
-Fecha: 16 de Julio, 2025
 """
 
 from flask import Blueprint, request, jsonify
