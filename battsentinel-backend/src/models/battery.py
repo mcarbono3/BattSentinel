@@ -205,28 +205,33 @@ class AnalysisResult(db.Model):
     id = Column(Integer, primary_key=True)
     battery_id = Column(Integer, ForeignKey('batteries.id'), nullable=False)
     analysis_type = Column(String(100), nullable=False)  # fault_detection, health_prediction, etc.
-    result = Column(Text, nullable=False)  # JSON string con resultados
+    result = Column(JSONB, nullable=False)  # Usa JSONB para PostgreSQL
     confidence_score = Column(Float)
     model_version = Column(String(50))
     processing_time = Column(Float)  # segundos
     created_at = Column(DateTime, default=datetime.utcnow)
-    # --- NUEVOS CAMPOS A AÑADIR ---
+    
+    # --- CAMPOS ACTUALES (CONFIRMADOS O YA PRESENTES) ---
     fault_detected = Column(Boolean, nullable=True)
     fault_type = Column(String(100), nullable=True)
     severity = Column(String(50), nullable=True) # low, medium, high, critical
     rul_prediction = Column(Float, nullable=True) # Predicción de días de vida útil restante
-    explanation = Column(Text, nullable=True) # JSON string con explicación del modelo
+    explanation = Column(JSONB, nullable=True) # Usa JSONB para PostgreSQL
+    
+    # --- NUEVOS CAMPOS A AÑADIR ---
+    level_of_analysis = Column(Integer, nullable=False) # 1 para Monitoreo Continuo, 2 para Análisis Avanzado
+    system_summary = Column(JSONB, nullable=True) # Almacena overall_status, priority_alerts, recommendations (Usa JSONB para PostgreSQL)
+
+    # Opcional: relación de vuelta a la batería si no la tienes ya definida
+    # battery = relationship('Battery', backref='analysis_results', lazy=True)
+    
     def to_dict(self):
-        import json
-        try:
-            result_data = json.loads(self.result) if self.result else {}
-        except:
-            result_data = {'raw_result': self.result}
-        try:
-            explanation_data = json.loads(self.explanation) if self.explanation else {}
-        except:
-            explanation_data = {'raw_explanation': self.explanation}
-        
+        # SQLAlchemy con JSONB generalmente deserializa automáticamente a dict/list.
+        # Estas comprobaciones son más para seguridad o si se usa Text en algún caso.
+        result_data = self.result if self.result is not None else {}
+        explanation_data = self.explanation if self.explanation is not None else {}
+        system_summary_data = self.system_summary if self.system_summary is not None else {}
+            
         return {
             'id': self.id,
             'battery_id': self.battery_id,
@@ -240,7 +245,9 @@ class AnalysisResult(db.Model):
             'fault_type': self.fault_type,
             'severity': self.severity,
             'rul_prediction': self.rul_prediction,
-            'explanation': explanation_data
+            'explanation': explanation_data,
+            'level_of_analysis': self.level_of_analysis,
+            'system_summary': system_summary_data
         }
 
 class ThermalImage(db.Model):
