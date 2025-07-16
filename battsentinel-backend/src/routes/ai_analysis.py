@@ -333,7 +333,7 @@ def execute_continuous_monitoring(df: pd.DataFrame, engine: ContinuousMonitoring
             'status': 'success',
             'analysis_type': 'continuous_monitoring',
             'timestamp': result.timestamp.isoformat(),
-            'confidence': result.confidence,
+            'confidence_score': result.confidence_score,
             'predictions': result.predictions,
             'explanation': result.explanation,
             'metadata': result.metadata
@@ -358,7 +358,7 @@ def execute_fault_detection(df: pd.DataFrame, model: FaultDetectionModel,
                 battery_id=df['battery_id'].iloc[0] if 'battery_id' in df.columns else 0,
                 analysis_type='fault_detection',
                 result=json.dumps(result.get('predictions', {})),
-                confidence=result.get('confidence', 0.0),
+                confidence_score=result.get('confidence_score', 0.0),
                 fault_detected=result.get('fault_detected', False),
                 fault_type=result.get('fault_type'),
                 severity=result.get('severity'),
@@ -393,7 +393,7 @@ def execute_health_prediction(df: pd.DataFrame, model: HealthPredictionModel,
                 battery_id=df['battery_id'].iloc[0] if 'battery_id' in df.columns else 0,
                 analysis_type='health_prediction',
                 result=json.dumps(result.get('predictions', {})),
-                confidence=result.get('confidence', 0.0),
+                confidence_score=result.get('confidence_score', 0.0),
                 rul_prediction=result.get('rul_days'),
                 explanation=json.dumps(result.get('explanation', {})),
                 model_version=f'2.0-level{level}'
@@ -561,7 +561,7 @@ def save_analysis_results(battery_id: int, results: Dict[str, Any], level: int):
                 'results_summary': {k: v.get('status', 'unknown') for k, v in results.items() if isinstance(v, dict)},
                 'timestamp': datetime.now(timezone.utc).isoformat()
             }),
-            confidence=calculate_overall_confidence(results),
+            confidence_score=calculate_overall_confidence(results),
             explanation=json.dumps(results.get('explanations', {})),
             model_version=f'2.0-level{level}'
         )
@@ -579,8 +579,8 @@ def calculate_overall_confidence(results: Dict[str, Any]) -> float:
     confidences = []
     
     for analysis_type, result in results.items():
-        if isinstance(result, dict) and 'confidence' in result:
-            confidences.append(result['confidence'])
+        if isinstance(result, dict) and 'confidence_score' in result:
+            confidences.append(result['confidence_score'])
     
     if not confidences:
         return 0.5
@@ -597,9 +597,9 @@ def calculate_overall_confidence(results: Dict[str, Any]) -> float:
     total_weight = 0
     
     for i, (analysis_type, result) in enumerate(results.items()):
-        if isinstance(result, dict) and 'confidence' in result:
+        if isinstance(result, dict) and 'confidence_score' in result:
             weight = weights.get(analysis_type, 1.0)
-            weighted_sum += result['confidence'] * weight
+            weighted_sum += result['confidence_score'] * weight
             total_weight += weight
     
     return weighted_sum / total_weight if total_weight > 0 else 0.5
@@ -1056,7 +1056,7 @@ def level1_continuous_monitoring_dedicated(battery_id):
                 'status': 'success',
                 'issues_detected': monitoring_result.predictions.get('issues_detected', False),
                 'severity': monitoring_result.predictions.get('severity', 'low'),
-                'confidence': monitoring_result.confidence,
+                'confidence_score': monitoring_result.confidence,
                 'anomaly_score': monitoring_result.predictions.get('anomaly_score', 0.0),
                 'threshold_violations': monitoring_result.predictions.get('threshold_violations', 0),
                 'control_chart_violations': monitoring_result.predictions.get('control_violations', 0)
@@ -1507,7 +1507,7 @@ def execute_deep_learning_fault_detection(df: pd.DataFrame, metadata, models) ->
                 'status': 'success',
                 'fault_detected': result.get('fault_detected', False),
                 'fault_type': result.get('fault_type', 'normal'),
-                'confidence': result.get('confidence', 0.0),
+                'confidence_score': result.get('confidence', 0.0),
                 'deep_learning_details': dl_details,
                 'model_performance': {
                     'processing_time_s': result.get('analysis_details', {}).get('processing_time_s', 0),
@@ -1538,7 +1538,7 @@ def execute_advanced_health_prediction(df: pd.DataFrame, metadata, models) -> Di
             'rul_days': result.get('rul_days', 0),
             'health_status': result.get('health_status', 'unknown'),
             'degradation_rate': result.get('degradation_rate', 0.0),
-            'confidence': result.get('confidence', 0.0),
+            'confidence_score': result.get('confidence', 0.0),
             'advanced_predictions': result.get('predictions', {}),
             'model_performance': result.get('analysis_details', {})
         }
@@ -1716,7 +1716,7 @@ def generate_comprehensive_xai_explanations(df: pd.DataFrame, analysis_results: 
                 # Crear mock AnalysisResult para el explicador avanzado
                 mock_result = type('MockResult', (), {
                     'predictions': analysis_results,
-                    'confidence': calculate_overall_confidence_level2(analysis_results),
+                    'confidence_score': calculate_overall_confidence_level2(analysis_results),
                     'metadata': {'models_used': get_models_used_in_analysis(analysis_results)}
                 })()
                 
@@ -1754,7 +1754,7 @@ def save_level2_analysis_results(battery_id: int, response_data: Dict[str, Any])
                 'combined_insights': response_data.get('combined_insights', {}),
                 'processing_time_s': response_data.get('processing_time_s', 0)
             }),
-            confidence=response_data.get('metadata', {}).get('confidence_score', 0.0),
+            confidence_score=response_data.get('metadata', {}).get('confidence_score', 0.0),
             explanation=json.dumps(response_data.get('xai_explanations', {})),
             model_version='2.0-level2-dedicated'
         )
@@ -1866,8 +1866,8 @@ def calculate_overall_confidence_level2(analysis_results: Dict[str, Any]) -> flo
         confidences = []
         
         for analysis_type, result in analysis_results.items():
-            if result.get('status') == 'success' and 'confidence' in result:
-                confidences.append(result['confidence'])
+            if result.get('status') == 'success' and 'confidence_score' in result:
+                confidences.append(result['confidence_score'])
         
         if not confidences:
             return 0.5
@@ -1885,9 +1885,9 @@ def calculate_overall_confidence_level2(analysis_results: Dict[str, Any]) -> flo
         total_weight = 0
         
         for i, (analysis_type, result) in enumerate(analysis_results.items()):
-            if result.get('status') == 'success' and 'confidence' in result:
+            if result.get('status') == 'success' and 'confidence_score' in result:
                 weight = weights.get(analysis_type, 1.0)
-                weighted_sum += result['confidence'] * weight
+                weighted_sum += result['confidence_score'] * weight
                 total_weight += weight
         
         return weighted_sum / total_weight if total_weight > 0 else 0.5
