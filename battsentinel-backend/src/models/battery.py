@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
-
+import json
 from src.main import db
 
 class Battery(db.Model):
