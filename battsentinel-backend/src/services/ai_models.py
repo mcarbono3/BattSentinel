@@ -378,10 +378,9 @@ class ContinuousMonitoringEngine:
             processing_time = (datetime.now() - start_time).total_seconds()
             
             return AnalysisResult(
-            analysis_type='continuous_monitoring',
-                timestamp=datetime.now(timezone.utc,
-            level_of_analysis=1
-        ),
+                analysis_type='continuous_monitoring',
+                timestamp=datetime.now(timezone.utc),
+                level_of_analysis=1,
                 confidence=combined_results['confidence'],
                 predictions=combined_results['predictions'],
                 explanation=combined_results['explanation'],
@@ -686,14 +685,13 @@ class ContinuousMonitoringEngine:
         """Crear resultado de error estándar"""
         return AnalysisResult(
             analysis_type=analysis_type,
-            timestamp=datetime.now(timezone.utc,
-            level_of_analysis=1
-        ),
+            timestamp=datetime.now(timezone.utc),
             confidence=0.0,
-            predictions={'error': True, 'message': error_msg},
-            explanation={'error': error_msg},
-            metadata={'level': 1, 'error': True},
-            model_version='2.0-error'
+            predictions={"error": True, "message": error_msg},
+            explanation={"error": error_msg},
+            metadata={"level": 1, "error": True},
+            model_version="2.0-error",
+            level_of_analysis=1
         )
 
 class EWMAControlChart:
@@ -2740,9 +2738,8 @@ class AdvancedAnalysisEngine:
             
             return AnalysisResult(
             analysis_type='advanced_analysis',
-                timestamp=datetime.now(timezone.utc,
-            level_of_analysis=1
-        ),
+                timestamp=datetime.now(timezone.utc),
+                level_of_analysis=1,
                 confidence=combined_results['confidence'],
                 predictions=combined_results['predictions'],
                 explanation=combined_results['explanation'],
@@ -4253,9 +4250,8 @@ class XAIExplainer:
                 # Crear AnalysisResult mock para el explicador avanzado
                 mock_result = AnalysisResult(
             analysis_type='fault_detection',
-                    timestamp=datetime.now(timezone.utc,
-            level_of_analysis=1
-        ),
+                    timestamp=datetime.now(timezone.utc),
+                level_of_analysis=1,
                     confidence=(prediction_result if isinstance(prediction_result, dict) else {}).get('confidence', 0.0),
                     predictions=(prediction_result if isinstance(prediction_result, dict) else {}).get('predictions', {}),
                     explanation={},
@@ -4282,9 +4278,8 @@ class XAIExplainer:
                 # Crear AnalysisResult mock para el explicador avanzado
                 mock_result = AnalysisResult(
             analysis_type='health_prediction',
-                    timestamp=datetime.now(timezone.utc,
-            level_of_analysis=1
-        ),
+                    timestamp=datetime.now(timezone.utc),
+                level_of_analysis=1,
                     confidence=(prediction_result if isinstance(prediction_result, dict) else {}).get('confidence', 0.0),
                     predictions=(prediction_result if isinstance(prediction_result, dict) else {}).get('predictions', {}),
                     explanation={},
