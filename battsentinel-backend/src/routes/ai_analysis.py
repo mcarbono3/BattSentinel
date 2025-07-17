@@ -36,12 +36,12 @@ from src.services.ai_models import (
 )
 
 import inspect
-logger.info(f"DEBUG: Atributos de AnalysisResult al cargar ai_analysis.py: {AnalysisResult.__dict__.keys()}")
-logger.info(f"DEBUG: Archivo de AnalysisResult cargado: {inspect.getfile(AnalysisResult)}")
-
-# Configuración de logging
+# Configuración de logging (MOVIMIENTO: Subido al inicio del archivo)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+logger.info(f"DEBUG: Atributos de AnalysisResult al cargar ai_analysis.py: {AnalysisResult.__dict__.keys()}")
+logger.info(f"DEBUG: Archivo de AnalysisResult cargado: {inspect.getfile(AnalysisResult)}")
 
 ai_bp = Blueprint('ai', __name__)
 
