@@ -358,7 +358,7 @@ def execute_fault_detection(df: pd.DataFrame, model: FaultDetectionModel,
                 battery_id=int(df['battery_id'].iloc[0]) if 'battery_id' in df.columns else 0,
                 analysis_type='fault_detection',
                 result=json.dumps(result.get('predictions', {})),
-                confidence_score=result.get('confidence_score', 0.0),
+                confidence_score=float(result.get('confidence_score', 0.0)),
                 fault_detected=result.get('fault_detected', False),
                 fault_type=result.get('fault_type'),
                 severity=result.get('severity'),
@@ -393,7 +393,7 @@ def execute_health_prediction(df: pd.DataFrame, model: HealthPredictionModel,
                 battery_id=df['battery_id'].iloc[0] if 'battery_id' in df.columns else 0,
                 analysis_type='health_prediction',
                 result=json.dumps(result.get('predictions', {})),
-                confidence_score=result.get('confidence_score', 0.0),
+                confidence_score=float(result.get('confidence_score', 0.0)),
                 rul_prediction=result.get('rul_days'),
                 explanation=json.dumps(result.get('explanation', {})),
                 model_version=f'2.0-level{level}'
@@ -1549,7 +1549,7 @@ def execute_deep_learning_fault_detection(df: pd.DataFrame, metadata, models) ->
                 'status': 'success',
                 'fault_detected': result.get('fault_detected', False),
                 'fault_type': result.get('fault_type', 'normal'),
-                'confidence_score': result.get('confidence', 0.0),
+                'confidence_score': result.get('confidence_score', 0.0),
                 'deep_learning_details': dl_details,
                 'model_performance': {
                     'processing_time_s': result.get('analysis_details', {}).get('processing_time_s', 0),
@@ -1577,10 +1577,10 @@ def execute_advanced_health_prediction(df: pd.DataFrame, metadata, models) -> Di
         return {
             'status': 'success',
             'current_soh': result.get('current_soh', 0.0),
-            'rul_days': result.get('rul_days', 0),
+            'rul_days': float(result.get('rul_days', 0)),
             'health_status': result.get('health_status', 'unknown'),
-            'degradation_rate': result.get('degradation_rate', 0.0),
-            'confidence_score': result.get('confidence', 0.0),
+            'degradation_rate': float(result.get('degradation_rate', 0.0)),
+            'confidence_score': float(result.get('confidence_score', 0.0)),
             'advanced_predictions': result.get('predictions', {}),
             'model_performance': result.get('analysis_details', {})
         }
@@ -1789,7 +1789,7 @@ def save_level2_analysis_results(battery_id: int, response_data: Dict[str, Any])
     try:
         # Crear entrada de análisis comprehensivo
         analysis = AnalysisResult(
-            battery_id=battery_id,
+            battery_id=int(battery_id),
             analysis_type='level2_comprehensive',
             result=json.dumps({
                 'analysis_types': response_data.get('analysis_types_executed', []),
