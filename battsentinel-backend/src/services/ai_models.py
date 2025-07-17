@@ -1453,7 +1453,7 @@ class FaultDetectionModel:
             fault_detected = final_prediction != 'normal'
             
             # Calcular severidad
-            severity = (severity_mapping if isinstance(severity_mapping, dict) else {}).get(final_prediction, 'low')
+            severity = self.severity_mapping.get(final_prediction, 'low')
             
             return {
                 'fault_detected': fault_detected,
@@ -1734,7 +1734,7 @@ class FaultDetectionModel:
         return {
             'fault_detected': fault_detected,
             'fault_type': fault_type,
-            'severity': (severity_mapping if isinstance(severity_mapping, dict) else {}).get(fault_type, 'low'),
+            'severity': self.severity_mapping.get(fault_type, 'low'),
             'confidence': result.confidence,
             'predictions': {
                 'fault_distribution': {fault_type: 1},
@@ -3972,7 +3972,7 @@ class FaultDetectionModel:
         return {
             'fault_detected': fault_detected,
             'fault_type': fault_type,
-            'severity': (severity_mapping if isinstance(severity_mapping, dict) else {}).get(fault_type, 'low'),
+            'severity': self.severity_mapping.get(fault_type, 'low'),
             'confidence': result.confidence,
             'predictions': {
                 'fault_distribution': {fault_type: 1},
@@ -4009,7 +4009,7 @@ class FaultDetectionModel:
         return {
             'fault_detected': fault_detected,
             'fault_type': fault_type,
-            'severity': (severity_mapping if isinstance(severity_mapping, dict) else {}).get(fault_type, 'low'),
+            'severity': self.severity_mapping.get(fault_type, 'low'),
             'confidence': result.confidence,
             'predictions': {
                 'fault_distribution': {fault_type: 1},
