@@ -1,19 +1,11 @@
 """
-BattSentinel AI Models - Versión Mejorada 2.1
+BattSentinel AI Models - Versión Mejorada 2.0
 Sistema de Monitoreo de Baterías de Clase Industrial
 
 Implementa un sistema de doble nivel:
 - Nivel 1: Monitoreo Continuo (Ligero y Eficiente)
 - Nivel 2: Análisis Avanzado (Profundo y Preciso)
-
-Versión 2.1 - Correcciones críticas:
-- Corregido error de violación NOT NULL en level_of_analysis
-- Mejorado manejo de explicaciones para evitar errores de tipo
-- Validación robusta de datos de entrada
-- Manejo mejorado de errores en métodos críticos
-- Asegurada compatibilidad con base de datos PostgreSQL
 """
-
 
 import numpy as np
 import pandas as pd
@@ -89,7 +81,7 @@ class AnalysisResult:
     explanation: Dict[str, Any]
     metadata: Dict[str, Any]
     model_version: str
-    level_of_analysis: int = 1  # Agregado: valor por defecto para evitar NULL
+    level_of_analysis: int = 1  # Agregado para evitar NULL constraint
 
 class DataPreprocessor:
     """Preprocesador avanzado de datos con manejo robusto de valores faltantes"""
@@ -386,8 +378,10 @@ class ContinuousMonitoringEngine:
             processing_time = (datetime.now() - start_time).total_seconds()
             
             return AnalysisResult(
-                analysis_type='continuous_monitoring',
-                timestamp=datetime.now(timezone.utc),
+            analysis_type='continuous_monitoring',
+                timestamp=datetime.now(timezone.utc,
+            level_of_analysis=1
+        ),
                 confidence=combined_results['confidence'],
                 predictions=combined_results['predictions'],
                 explanation=combined_results['explanation'],
@@ -397,8 +391,7 @@ class ContinuousMonitoringEngine:
                     'features_analyzed': len(key_features.columns),
                     'level': 1
                 },
-                model_version='2.0-level1',
-                level_of_analysis=1,
+                model_version='2.0-level1'
             )
             
         except Exception as e:
@@ -693,13 +686,14 @@ class ContinuousMonitoringEngine:
         """Crear resultado de error estándar"""
         return AnalysisResult(
             analysis_type=analysis_type,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(timezone.utc,
+            level_of_analysis=1
+        ),
             confidence=0.0,
             predictions={'error': True, 'message': error_msg},
             explanation={'error': error_msg},
             metadata={'level': 1, 'error': True},
-            model_version='2.0-error',
-            level_of_analysis=1,
+            model_version='2.0-error'
         )
 
 class EWMAControlChart:
@@ -935,7 +929,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error construyendo modelo LSTM: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} None
+            return None
     
     def _build_gru_model(self, input_shape: tuple, num_classes: int) -> tf.keras.Model:
         """Construir modelo GRU para detección de fallas"""
@@ -971,7 +965,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error construyendo modelo GRU: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} None
+            return None
     
     def _build_tcn_model(self, input_shape: tuple, num_classes: int) -> tf.keras.Model:
         """Construir modelo TCN (Temporal Convolutional Network)"""
@@ -1009,7 +1003,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error construyendo modelo TCN: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} None
+            return None
     
     def _build_autoencoder_model(self, input_dim: int) -> tf.keras.Model:
         """Construir autoencoder para detección de anomalías"""
@@ -1050,7 +1044,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error construyendo autoencoder: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} None
+            return None
     
     def analyze(self, df: pd.DataFrame, level: int = 1, battery_metadata: Optional[BatteryMetadata] = None) -> Dict[str, Any]:
         """Análisis de fallas con selección de nivel"""
@@ -1067,7 +1061,7 @@ class FaultDetectionModel:
                 
         except Exception as e:
             logger.error(f"Error en análisis de fallas: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} self._create_error_result(str(e))
+            return self._create_error_result(str(e))
     
     def _advanced_fault_analysis(self, df: pd.DataFrame, battery_metadata: Optional[BatteryMetadata] = None) -> Dict[str, Any]:
         """Análisis avanzado de fallas usando ML/DL"""
@@ -1131,7 +1125,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error en análisis avanzado de fallas: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} self._create_error_result(str(e))
+            return self._create_error_result(str(e))
     
     def _extract_traditional_features(self, df: pd.DataFrame) -> np.ndarray:
         """Extraer características para modelos tradicionales de ML"""
@@ -1178,7 +1172,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error extrayendo características tradicionales: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} np.array([[0.0]])
+            return np.array([[0.0]])
     
     def _prepare_sequences(self, df: pd.DataFrame) -> np.ndarray:
         """Preparar secuencias para modelos temporales"""
@@ -1213,7 +1207,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error preparando secuencias: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} np.zeros((1, self.sequence_length, 6))
+            return np.zeros((1, self.sequence_length, 6))
     
     def _normalize_sequences(self, sequences: np.ndarray) -> np.ndarray:
         """Normalizar secuencias para modelos de deep learning"""
@@ -1237,7 +1231,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error normalizando secuencias: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} sequences
+            return sequences
     
     def _run_traditional_ml_models(self, features: np.ndarray) -> Dict[str, Any]:
         """Ejecutar modelos tradicionales de ML"""
@@ -1280,7 +1274,7 @@ class FaultDetectionModel:
                 prediction = self.random_forest.predict(features)[0]
                 probabilities = self.random_forest.predict_proba(features)[0]
                 
-                results['predictions']['random_forest'] = self.(fault_types if isinstance(fault_types, dict) else {}).get(prediction, 'unknown')
+                results['predictions']['random_forest'] = (fault_types if isinstance(fault_types, dict) else {}).get(prediction, 'unknown')
                 results['confidences']['random_forest'] = np.max(probabilities)
                 results['fault_probabilities']['random_forest'] = probabilities.tolist()
                 
@@ -1297,7 +1291,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error ejecutando modelos tradicionales: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'predictions': {}, 'confidences': {}, 'confidence': 0.0}
+            return {'predictions': {}, 'confidences': {}, 'confidence': 0.0}
     
     def _run_deep_learning_models(self, sequences: np.ndarray, feature_dim: int) -> Dict[str, Any]:
         """Ejecutar modelos de deep learning"""
@@ -1336,7 +1330,7 @@ class FaultDetectionModel:
                     predicted_class = np.argmax(prediction[0])
                     confidence = np.max(prediction[0])
                     
-                    results['predictions']['lstm'] = self.(fault_types if isinstance(fault_types, dict) else {}).get(predicted_class, 'unknown')
+                    results['predictions']['lstm'] = (fault_types if isinstance(fault_types, dict) else {}).get(predicted_class, 'unknown')
                     results['confidences']['lstm'] = float(confidence)
                     
             except Exception as e:
@@ -1365,7 +1359,7 @@ class FaultDetectionModel:
                     predicted_class = np.argmax(prediction[0])
                     confidence = np.max(prediction[0])
                     
-                    results['predictions']['gru'] = self.(fault_types if isinstance(fault_types, dict) else {}).get(predicted_class, 'unknown')
+                    results['predictions']['gru'] = (fault_types if isinstance(fault_types, dict) else {}).get(predicted_class, 'unknown')
                     results['confidences']['gru'] = float(confidence)
                     
             except Exception as e:
@@ -1381,7 +1375,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error ejecutando modelos de deep learning: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'predictions': {}, 'confidences': {}, 'confidence': 0.0}
+            return {'predictions': {}, 'confidences': {}, 'confidence': 0.0}
     
     def _run_autoencoder_anomaly_detection(self, features: np.ndarray) -> Dict[str, Any]:
         """Ejecutar detección de anomalías con autoencoder"""
@@ -1420,7 +1414,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error en detección de anomalías con autoencoder: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'anomaly_score': 0.0, 'is_anomaly': False}
+            return {'anomaly_score': 0.0, 'is_anomaly': False}
     
     def _ensemble_fault_predictions(self, results: Dict[str, Any]) -> Dict[str, Any]:
         """Combinar predicciones usando ensemble"""
@@ -1461,7 +1455,7 @@ class FaultDetectionModel:
             fault_detected = final_prediction != 'normal'
             
             # Calcular severidad
-            severity = self.(severity_mapping if isinstance(severity_mapping, dict) else {}).get(final_prediction, 'low')
+            severity = (severity_mapping if isinstance(severity_mapping, dict) else {}).get(final_prediction, 'low')
             
             return {
                 'fault_detected': fault_detected,
@@ -1486,7 +1480,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error en ensemble de predicciones: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} self._create_default_result()
+            return self._create_default_result()
     
     def _generate_ensemble_summary(self, final_prediction: str, fault_votes: Dict[str, float], results: Dict[str, Any]) -> str:
         """Generar resumen del análisis ensemble"""
@@ -1519,7 +1513,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error generando resumen ensemble: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} "Error generando resumen del análisis"
+            return "Error generando resumen del análisis"
     
     def _calculate_ensemble_agreement(self, results: Dict[str, Any]) -> float:
         """Calcular nivel de acuerdo entre modelos"""
@@ -1547,7 +1541,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error calculando acuerdo ensemble: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} 0.5
+            return 0.5
     
     def _calculate_model_uncertainties(self, results: Dict[str, Any]) -> Dict[str, float]:
         """Calcular incertidumbres de cada modelo"""
@@ -1567,7 +1561,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error calculando incertidumbres: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {}
+            return {}
     
     # Funciones auxiliares para generación de datos sintéticos
     
@@ -1589,7 +1583,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error generando características sintéticas: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} np.random.randn(num_samples, base_features.shape[1] if len(base_features) > 0 else 10)
+            return np.random.randn(num_samples, base_features.shape[1] if len(base_features) > 0 else 10)
     
     def _generate_synthetic_labels(self, num_samples: int) -> np.ndarray:
         """Generar etiquetas sintéticas para entrenamiento"""
@@ -1605,7 +1599,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error generando etiquetas sintéticas: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} np.zeros(num_samples, dtype=int)
+            return np.zeros(num_samples, dtype=int)
     
     def _generate_synthetic_sequences(self, base_sequences: np.ndarray, num_samples: int) -> tuple:
         """Generar secuencias sintéticas para entrenamiento"""
@@ -1684,7 +1678,7 @@ class FaultDetectionModel:
             
         except Exception as e:
             logger.error(f"Error generando datos sintéticos: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} base_df
+            return base_df
     
     def _create_default_result(self) -> Dict[str, Any]:
         """Crear resultado por defecto en caso de error"""
@@ -1742,7 +1736,7 @@ class FaultDetectionModel:
         return {
             'fault_detected': fault_detected,
             'fault_type': fault_type,
-            'severity': self.(severity_mapping if isinstance(severity_mapping, dict) else {}).get(fault_type, 'low'),
+            'severity': (severity_mapping if isinstance(severity_mapping, dict) else {}).get(fault_type, 'low'),
             'confidence': result.confidence,
             'predictions': {
                 'fault_distribution': {fault_type: 1},
@@ -1751,9 +1745,9 @@ class FaultDetectionModel:
                 'level1_details': predictions
             },
             'analysis_details': {
-                'total_samples': result.(metadata if isinstance(metadata, dict) else {}).get('data_points', 0),
-                'processing_time_ms': result.(metadata if isinstance(metadata, dict) else {}).get('processing_time_ms', 0),
-                'level': result.(metadata if isinstance(metadata, dict) else {}).get('level', 1)
+                'total_samples': (metadata if isinstance(metadata, dict) else {}).get('data_points', 0),
+                'processing_time_ms': (metadata if isinstance(metadata, dict) else {}).get('processing_time_ms', 0),
+                'level': (metadata if isinstance(metadata, dict) else {}).get('level', 1)
             }
         }
     
@@ -1946,7 +1940,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error construyendo modelo LSTM de salud: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} None
+            return None
     
     def _build_gru_health_model(self, input_shape: tuple) -> tf.keras.Model:
         """Construir modelo GRU para predicción de salud"""
@@ -1983,7 +1977,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error construyendo modelo GRU de salud: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} None
+            return None
     
     def _build_transformer_health_model(self, input_shape: tuple) -> tf.keras.Model:
         """Construir modelo Transformer para predicción de salud"""
@@ -2036,7 +2030,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error construyendo modelo Transformer de salud: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} None
+            return None
     
     def _build_health_autoencoder(self, input_dim: int) -> tf.keras.Model:
         """Construir autoencoder para análisis de salud"""
@@ -2077,7 +2071,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error construyendo autoencoder de salud: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} None
+            return None
     
     def analyze(self, df: pd.DataFrame, level: int = 1, battery_metadata: Optional[BatteryMetadata] = None) -> Dict[str, Any]:
         """Análisis de salud con selección de nivel"""
@@ -2093,7 +2087,7 @@ class HealthPredictionModel:
                 
         except Exception as e:
             logger.error(f"Error en análisis de salud: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} self._create_error_result(str(e))
+            return self._create_error_result(str(e))
     
     def _basic_health_analysis(self, df: pd.DataFrame, battery_metadata: Optional[BatteryMetadata] = None) -> Dict[str, Any]:
         """Análisis básico de salud para Nivel 1"""
@@ -2137,7 +2131,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error en análisis básico de salud: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} self._create_error_result(str(e))
+            return self._create_error_result(str(e))
     
     def _advanced_health_analysis(self, df: pd.DataFrame, battery_metadata: Optional[BatteryMetadata] = None) -> Dict[str, Any]:
         """Análisis avanzado de salud usando ML/DL"""
@@ -2212,7 +2206,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error en análisis avanzado de salud: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} self._create_error_result(str(e))
+            return self._create_error_result(str(e))
     
     def _estimate_current_soh(self, df: pd.DataFrame) -> float:
         """Estimar SOH actual basado en datos disponibles"""
@@ -2253,7 +2247,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error estimando SOH actual: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} 80.0
+            return 80.0
     
     def _estimate_rul(self, df: pd.DataFrame, current_soh: float) -> int:
         """Estimar vida útil restante (RUL) en días"""
@@ -2278,7 +2272,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error estimando RUL: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} 365  # 1 año por defecto
+            return 365  # 1 año por defecto
     
     def _estimate_degradation_rate(self, df: pd.DataFrame) -> float:
         """Estimar tasa de degradación (% SOH por año)"""
@@ -2315,7 +2309,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error estimando tasa de degradación: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} 3.0
+            return 3.0
     
     def _classify_health_status(self, soh: float) -> str:
         """Clasificar estado de salud basado en SOH"""
@@ -2366,7 +2360,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error calculando confianza básica: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} 0.5
+            return 0.5
     
     # Funciones auxiliares para análisis básico
     
@@ -2386,7 +2380,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error calculando eficiencia de voltaje: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} 0.8
+            return 0.8
     
     def _calculate_linear_trend(self, series: pd.Series) -> float:
         """Calcular tendencia lineal de una serie temporal"""
@@ -2411,7 +2405,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error calculando tendencia lineal: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} 0.0
+            return 0.0
     
     def _calculate_cycles_per_day(self, df: pd.DataFrame) -> float:
         """Calcular ciclos por día"""
@@ -2437,7 +2431,7 @@ class HealthPredictionModel:
             
         except Exception as e:
             logger.error(f"Error calculando ciclos por día: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} 1.0
+            return 1.0
     
     def _create_error_result(self, error_msg: str) -> Dict[str, Any]:
         """Crear resultado de error para análisis de salud"""
@@ -2481,12 +2475,6 @@ class HealthPredictionModel:
 # =============================================================================================
 
 class XAIExplainer:
-    def _safe_get(self, obj, key, default=None):
-        """Método auxiliar para obtener valores de forma segura"""
-        if isinstance(obj, dict):
-            return obj.get(key, default)
-        return default
-
     """Explicador de IA mejorado con SHAP y LIME"""
     
     def __init__(self):
@@ -2545,12 +2533,6 @@ class XAIExplainer:
         return self._basic_health_analysis(df)
 
 class XAIExplainer:
-    def _safe_get(self, obj, key, default=None):
-        """Método auxiliar para obtener valores de forma segura"""
-        if isinstance(obj, dict):
-            return obj.get(key, default)
-        return default
-
     """Explicador de IA mejorado con SHAP y LIME"""
     
     def __init__(self):
@@ -2757,8 +2739,10 @@ class AdvancedAnalysisEngine:
             processing_time = (datetime.now() - start_time).total_seconds()
             
             return AnalysisResult(
-                analysis_type='advanced_analysis',
-                timestamp=datetime.now(timezone.utc),
+            analysis_type='advanced_analysis',
+                timestamp=datetime.now(timezone.utc,
+            level_of_analysis=1
+        ),
                 confidence=combined_results['confidence'],
                 predictions=combined_results['predictions'],
                 explanation=combined_results['explanation'],
@@ -2770,12 +2754,11 @@ class AdvancedAnalysisEngine:
                     'models_used': combined_results['models_used']
                 },
                 model_version='2.0-level2'
-                level_of_analysis=1,
             )
             
         except Exception as e:
             logger.error(f"Error en análisis avanzado: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} self._create_error_result(str(e), 'advanced_analysis')
+            return self._create_error_result(str(e), 'advanced_analysis')
     
     def _deep_learning_analysis(self, df: pd.DataFrame, metadata: Optional[BatteryMetadata]) -> Dict[str, Any]:
         """Análisis usando redes neuronales profundas"""
@@ -2925,7 +2908,7 @@ class AdvancedAnalysisEngine:
                 
         except Exception as e:
             logger.error(f"Error en LSTM fault detection: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e), 'method': 'LSTM'}
+            return {'error': str(e), 'method': 'LSTM'}
     
     def _gru_health_prediction(self, sequences: np.ndarray, targets: np.ndarray, df: pd.DataFrame) -> Dict[str, Any]:
         """Predicción de salud usando GRU"""
@@ -2994,7 +2977,7 @@ class AdvancedAnalysisEngine:
                 
         except Exception as e:
             logger.error(f"Error en GRU health prediction: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e), 'method': 'GRU'}
+            return {'error': str(e), 'method': 'GRU'}
     
     def _tcn_pattern_classification(self, sequences: np.ndarray, df: pd.DataFrame) -> Dict[str, Any]:
         """Clasificación de patrones usando Temporal Convolutional Networks"""
@@ -3065,7 +3048,7 @@ class AdvancedAnalysisEngine:
                 
         except Exception as e:
             logger.error(f"Error en TCN pattern classification: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e), 'method': 'TCN'}
+            return {'error': str(e), 'method': 'TCN'}
     
     def _autoencoder_anomaly_detection(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Detección de anomalías usando Variational Autoencoders"""
@@ -3168,7 +3151,7 @@ class AdvancedAnalysisEngine:
                 
         except Exception as e:
             logger.error(f"Error en autoencoder anomaly detection: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e), 'method': 'Variational_Autoencoder'}
+            return {'error': str(e), 'method': 'Variational_Autoencoder'}
     
     def _gaussian_process_prediction(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Predicción con incertidumbre usando Gaussian Processes"""
@@ -3250,7 +3233,7 @@ class AdvancedAnalysisEngine:
             
         except Exception as e:
             logger.error(f"Error en Gaussian Process prediction: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e), 'method': 'Gaussian_Process'}
+            return {'error': str(e), 'method': 'Gaussian_Process'}
     
     def _survival_analysis(self, df: pd.DataFrame, metadata: Optional[BatteryMetadata]) -> Dict[str, Any]:
         """Análisis de supervivencia para predicción de RUL"""
@@ -3321,7 +3304,7 @@ class AdvancedAnalysisEngine:
                 
         except Exception as e:
             logger.error(f"Error en survival analysis: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e), 'method': 'Survival_Analysis'}
+            return {'error': str(e), 'method': 'Survival_Analysis'}
     
     def _combine_level2_results(self, deep_results: Dict, anomaly_results: Dict, 
                                uncertainty_results: Dict, survival_results: Dict) -> Dict[str, Any]:
@@ -3503,7 +3486,7 @@ class AdvancedXAIExplainer:
             
         except Exception as e:
             logger.error(f"Error en explicaciones avanzadas: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e), 'method': 'advanced_xai'}
+            return {'error': str(e), 'method': 'advanced_xai'}
     
     def _generate_shap_explanations(self, df: pd.DataFrame, analysis_result: AnalysisResult, 
                                    models_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -3555,7 +3538,7 @@ class AdvancedXAIExplainer:
             
         except Exception as e:
             logger.error(f"Error en SHAP explanations: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e)}
+            return {'error': str(e)}
     
     def _calculate_feature_importance(self, X: pd.DataFrame, predictions: Dict[str, Any]) -> Dict[str, float]:
         """Calcular importancia de características"""
@@ -3668,7 +3651,7 @@ class AdvancedXAIExplainer:
             
         except Exception as e:
             logger.error(f"Error en LIME explanations: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e)}
+            return {'error': str(e)}
     
     def _analyze_feature_interactions(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Analizar interacciones entre características"""
@@ -3730,23 +3713,12 @@ class AdvancedXAIExplainer:
             
         except Exception as e:
             logger.error(f"Error en análisis de interacciones: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e)}
+            return {'error': str(e)}
     
     def _generate_natural_language_explanations(self, analysis_result: AnalysisResult, 
                                                explanations: Dict[str, Any]) -> Dict[str, Any]:
         """Generar explicaciones en lenguaje natural"""
         try:
-            # Validar tipos de entrada
-            if not isinstance(prediction_result, dict):
-                prediction_result = {}
-            if not isinstance(feature_importance, dict):
-                feature_importance = {}
-        try:
-            # Validar entrada
-            if not isinstance(prediction_result, dict):
-                prediction_result = {}
-            if not isinstance(feature_importance, dict):
-                feature_importance = {}
             predictions = analysis_result.predictions
             severity = (predictions if isinstance(predictions, dict) else {}).get('severity', 'unknown')
             
@@ -3773,7 +3745,7 @@ class AdvancedXAIExplainer:
             
         except Exception as e:
             logger.error(f"Error en explicaciones de lenguaje natural: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e)}
+            return {'error': str(e)}
     
     def _create_general_explanation(self, severity: str, predictions: Dict[str, Any]) -> str:
         """Crear explicación general para usuarios no técnicos"""
@@ -4003,7 +3975,7 @@ class FaultDetectionModel:
         return {
             'fault_detected': fault_detected,
             'fault_type': fault_type,
-            'severity': self.(severity_mapping if isinstance(severity_mapping, dict) else {}).get(fault_type, 'low'),
+            'severity': (severity_mapping if isinstance(severity_mapping, dict) else {}).get(fault_type, 'low'),
             'confidence': result.confidence,
             'predictions': {
                 'fault_distribution': {fault_type: 1},
@@ -4013,10 +3985,10 @@ class FaultDetectionModel:
                 'advanced_analysis': True
             },
             'analysis_details': {
-                'total_samples': result.(metadata if isinstance(metadata, dict) else {}).get('data_points', 0),
-                'processing_time_s': result.(metadata if isinstance(metadata, dict) else {}).get('processing_time_s', 0),
-                'level': result.(metadata if isinstance(metadata, dict) else {}).get('level', 2),
-                'models_used': result.(metadata if isinstance(metadata, dict) else {}).get('models_used', [])
+                'total_samples': (metadata if isinstance(metadata, dict) else {}).get('data_points', 0),
+                'processing_time_s': (metadata if isinstance(metadata, dict) else {}).get('processing_time_s', 0),
+                'level': (metadata if isinstance(metadata, dict) else {}).get('level', 2),
+                'models_used': (metadata if isinstance(metadata, dict) else {}).get('models_used', [])
             }
         }
     
@@ -4040,7 +4012,7 @@ class FaultDetectionModel:
         return {
             'fault_detected': fault_detected,
             'fault_type': fault_type,
-            'severity': self.(severity_mapping if isinstance(severity_mapping, dict) else {}).get(fault_type, 'low'),
+            'severity': (severity_mapping if isinstance(severity_mapping, dict) else {}).get(fault_type, 'low'),
             'confidence': result.confidence,
             'predictions': {
                 'fault_distribution': {fault_type: 1},
@@ -4049,9 +4021,9 @@ class FaultDetectionModel:
                 'level1_details': predictions
             },
             'analysis_details': {
-                'total_samples': result.(metadata if isinstance(metadata, dict) else {}).get('data_points', 0),
-                'processing_time_ms': result.(metadata if isinstance(metadata, dict) else {}).get('processing_time_ms', 0),
-                'level': result.(metadata if isinstance(metadata, dict) else {}).get('level', 1)
+                'total_samples': (metadata if isinstance(metadata, dict) else {}).get('data_points', 0),
+                'processing_time_ms': (metadata if isinstance(metadata, dict) else {}).get('processing_time_ms', 0),
+                'level': (metadata if isinstance(metadata, dict) else {}).get('level', 1)
             }
         }
     
@@ -4143,17 +4115,17 @@ class HealthPredictionModel:
                     'advanced_analysis': predictions
                 },
                 'analysis_details': {
-                    'total_samples': result.(metadata if isinstance(metadata, dict) else {}).get('data_points', 0),
-                    'processing_time_s': result.(metadata if isinstance(metadata, dict) else {}).get('processing_time_s', 0),
+                    'total_samples': (metadata if isinstance(metadata, dict) else {}).get('data_points', 0),
+                    'processing_time_s': (metadata if isinstance(metadata, dict) else {}).get('processing_time_s', 0),
                     'method': 'advanced_deep_learning',
                     'level': 2,
-                    'models_used': result.(metadata if isinstance(metadata, dict) else {}).get('models_used', [])
+                    'models_used': (metadata if isinstance(metadata, dict) else {}).get('models_used', [])
                 }
             }
             
         except Exception as e:
             logger.error(f"Error extrayendo salud del análisis avanzado: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} self._basic_health_analysis(pd.DataFrame())
+            return self._basic_health_analysis(pd.DataFrame())
     
     # Mantener métodos existentes para compatibilidad
     def _basic_health_analysis(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -4266,12 +4238,6 @@ class HealthPredictionModel:
         return self._basic_health_analysis(df)
 
 class XAIExplainer:
-    def _safe_get(self, obj, key, default=None):
-        """Método auxiliar para obtener valores de forma segura"""
-        if isinstance(obj, dict):
-            return obj.get(key, default)
-        return default
-
     """Explicador de IA mejorado con SHAP y LIME"""
     
     def __init__(self):
@@ -4286,8 +4252,10 @@ class XAIExplainer:
             if (prediction_result if isinstance(prediction_result, dict) else {}).get('analysis_details', {}).get('level') == 2:
                 # Crear AnalysisResult mock para el explicador avanzado
                 mock_result = AnalysisResult(
-                    analysis_type='fault_detection',
-                    timestamp=datetime.now(timezone.utc),
+            analysis_type='fault_detection',
+                    timestamp=datetime.now(timezone.utc,
+            level_of_analysis=1
+        ),
                     confidence=(prediction_result if isinstance(prediction_result, dict) else {}).get('confidence', 0.0),
                     predictions=(prediction_result if isinstance(prediction_result, dict) else {}).get('predictions', {}),
                     explanation={},
@@ -4313,8 +4281,10 @@ class XAIExplainer:
             if (prediction_result if isinstance(prediction_result, dict) else {}).get('analysis_details', {}).get('level') == 2:
                 # Crear AnalysisResult mock para el explicador avanzado
                 mock_result = AnalysisResult(
-                    analysis_type='health_prediction',
-                    timestamp=datetime.now(timezone.utc),
+            analysis_type='health_prediction',
+                    timestamp=datetime.now(timezone.utc,
+            level_of_analysis=1
+        ),
                     confidence=(prediction_result if isinstance(prediction_result, dict) else {}).get('confidence', 0.0),
                     predictions=(prediction_result if isinstance(prediction_result, dict) else {}).get('predictions', {}),
                     explanation={},
@@ -4438,12 +4408,6 @@ class XAIExplainer:
 # =============================================================================================
 
 class XAIExplainer:
-    def _safe_get(self, obj, key, default=None):
-        """Método auxiliar para obtener valores de forma segura"""
-        if isinstance(obj, dict):
-            return obj.get(key, default)
-        return default
-
     """Sistema de explicabilidad avanzado para BattSentinel usando SHAP y LIME"""
     
     def __init__(self):
@@ -4572,6 +4536,10 @@ class XAIExplainer:
     
     def explain_prediction(self, model, X_instance: np.ndarray, prediction_result: Dict[str, Any]) -> Dict[str, Any]:
         """Generar explicación completa para una predicción"""
+        # Validar entrada
+        if not isinstance(prediction_result, dict):
+            prediction_result = {}
+        """Generar explicación completa para una predicción"""
         try:
             explanations = {
                 'shap_explanation': None,
@@ -4618,15 +4586,7 @@ class XAIExplainer:
             
         except Exception as e:
             logger.error(f"Error generando explicación: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {
-                'shap_explanation': None,
-                'lime_explanation': None,
-                'natural_language_explanation': f"Error generando explicación: {str(e)}",
-                'feature_importance': {},
-                'confidence_factors': {},
-                'technical_details': {},
-                'error': str(e)
-            }
+            return self._create_default_explanation(str(e))
     
     def _generate_shap_explanation(self, X_instance: np.ndarray) -> Dict[str, Any]:
         """Generar explicación SHAP"""
@@ -4665,7 +4625,7 @@ class XAIExplainer:
             
         except Exception as e:
             logger.error(f"Error en explicación SHAP: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'method': 'SHAP', 'error': str(e)}
+            return {'method': 'SHAP', 'error': str(e)}
     
     def _generate_lime_explanation(self, model, X_instance: np.ndarray) -> Dict[str, Any]:
         """Generar explicación LIME"""
@@ -4712,7 +4672,7 @@ class XAIExplainer:
             
         except Exception as e:
             logger.error(f"Error en explicación LIME: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'method': 'LIME', 'error': str(e)}
+            return {'method': 'LIME', 'error': str(e)}
     
     def _combine_feature_importances(self, shap_explanation: Dict, lime_explanation: Dict) -> Dict[str, float]:
         """Combinar importancias de características de SHAP y LIME"""
@@ -4748,22 +4708,11 @@ class XAIExplainer:
             
         except Exception as e:
             logger.error(f"Error combinando importancias: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {}
+            return {}
     
     def _generate_natural_language_explanation(self, prediction_result: Dict[str, Any], feature_importance: Dict[str, float]) -> str:
         """Generar explicación en lenguaje natural"""
         try:
-            # Validar tipos de entrada
-            if not isinstance(prediction_result, dict):
-                prediction_result = {}
-            if not isinstance(feature_importance, dict):
-                feature_importance = {}
-        try:
-            # Validar entrada
-            if not isinstance(prediction_result, dict):
-                prediction_result = {}
-            if not isinstance(feature_importance, dict):
-                feature_importance = {}
             # Determinar tipo de análisis
             if 'fault_detected' in prediction_result:
                 return self._generate_fault_explanation(prediction_result, feature_importance)
@@ -4774,7 +4723,7 @@ class XAIExplainer:
             
         except Exception as e:
             logger.error(f"Error generando explicación en lenguaje natural: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} f"Error generando explicación: {str(e)}"
+            return f"Error generando explicación: {str(e)}"
     
     def _generate_fault_explanation(self, prediction_result: Dict[str, Any], feature_importance: Dict[str, float]) -> str:
         """Generar explicación para detección de fallas"""
@@ -4813,7 +4762,7 @@ class XAIExplainer:
             
         except Exception as e:
             logger.error(f"Error generando explicación de fallas: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} "Error generando explicación de fallas."
+            return "Error generando explicación de fallas."
     
     def _generate_health_explanation(self, prediction_result: Dict[str, Any], feature_importance: Dict[str, float]) -> str:
         """Generar explicación para predicción de salud"""
@@ -4850,7 +4799,7 @@ class XAIExplainer:
             
         except Exception as e:
             logger.error(f"Error generando explicación de salud: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} "Error generando explicación de salud."
+            return "Error generando explicación de salud."
     
     def _get_main_factors(self, feature_importance: Dict[str, float], top_n: int = 3) -> str:
         """Obtener factores principales en formato legible"""
@@ -4890,7 +4839,7 @@ class XAIExplainer:
             
         except Exception as e:
             logger.error(f"Error obteniendo factores principales: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} "factores no disponibles"
+            return "factores no disponibles"
     
     def _analyze_confidence_factors(self, prediction_result: Dict[str, Any], feature_importance: Dict[str, float]) -> Dict[str, Any]:
         """Analizar factores que afectan la confianza"""
@@ -4932,7 +4881,7 @@ class XAIExplainer:
             
         except Exception as e:
             logger.error(f"Error analizando factores de confianza: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'overall_confidence': 0.5}
+            return {'overall_confidence': 0.5}
     
     def _generate_technical_details(self, shap_explanation: Dict, lime_explanation: Dict) -> Dict[str, Any]:
         """Generar detalles técnicos de las explicaciones"""
@@ -4978,14 +4927,14 @@ class XAIExplainer:
             
         except Exception as e:
             logger.error(f"Error generando detalles técnicos: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} {'error': str(e)}
+            return {'error': str(e)}
     
     def _create_default_explanation(self, error_msg: str) -> Dict[str, Any]:
         """Crear explicación por defecto en caso de error"""
         return {
             'shap_explanation': None,
             'lime_explanation': None,
-            'natural_language_explanation': f"Error generando explicación: {error_msg}",      
+            'natural_language_explanation': f"No se pudo generar explicación detallada. Error: {error_msg}",
             'feature_importance': {},
             'confidence_factors': {'overall_confidence': 0.0},
             'technical_details': {'error': error_msg}
@@ -5127,7 +5076,7 @@ def _get_feature_names_for_explanation(df: pd.DataFrame) -> List[str]:
         
     except Exception as e:
         logger.error(f"Error obteniendo nombres de características: {str(e)}")
-        return {"error": str(e), "explanation": "Error generando explicación", "details": {}} ['feature_' + str(i) for i in range(10)]
+        return ['feature_' + str(i) for i in range(10)]
 
 def _create_dummy_model_for_explanation(result: Dict[str, Any]):
     """Crear modelo dummy para explicación de fallas"""
@@ -5138,13 +5087,13 @@ def _create_dummy_model_for_explanation(result: Dict[str, Any]):
             
             def predict(self, X):
                 # Retornar predicción basada en resultado
-                fault_detected = self.(fault_result if isinstance(fault_result, dict) else {}).get('fault_detected', False)
+                fault_detected = (fault_result if isinstance(fault_result, dict) else {}).get('fault_detected', False)
                 return np.array([1 if fault_detected else 0] * len(X))
             
             def predict_proba(self, X):
                 # Retornar probabilidades basadas en confianza
-                confidence = self.(fault_result if isinstance(fault_result, dict) else {}).get('confidence', 0.5)
-                fault_detected = self.(fault_result if isinstance(fault_result, dict) else {}).get('fault_detected', False)
+                confidence = (fault_result if isinstance(fault_result, dict) else {}).get('confidence', 0.5)
+                fault_detected = (fault_result if isinstance(fault_result, dict) else {}).get('fault_detected', False)
                 
                 if fault_detected:
                     prob_fault = confidence
@@ -5159,7 +5108,7 @@ def _create_dummy_model_for_explanation(result: Dict[str, Any]):
         
     except Exception as e:
         logger.error(f"Error creando modelo dummy para fallas: {str(e)}")
-        return {"error": str(e), "explanation": "Error generando explicación", "details": {}} None
+        return None
 
 def _create_dummy_health_model_for_explanation(result: Dict[str, Any]):
     """Crear modelo dummy para explicación de salud"""
@@ -5170,14 +5119,14 @@ def _create_dummy_health_model_for_explanation(result: Dict[str, Any]):
             
             def predict(self, X):
                 # Retornar predicción de SOH
-                soh = self.(health_result if isinstance(health_result, dict) else {}).get('current_soh', 80.0)
+                soh = (health_result if isinstance(health_result, dict) else {}).get('current_soh', 80.0)
                 return np.array([soh] * len(X))
         
         return DummyHealthModel(result)
         
     except Exception as e:
         logger.error(f"Error creando modelo dummy para salud: {str(e)}")
-        return {"error": str(e), "explanation": "Error generando explicación", "details": {}} None
+        return None
 
 # Inyectar métodos XAI en las clases existentes
 FaultDetectionModel._add_xai_explanation = _add_xai_explanation_to_fault_model
