@@ -355,7 +355,7 @@ def execute_fault_detection(df: pd.DataFrame, model: FaultDetectionModel,
         # Guardar en base de datos si es exitoso
         if result.get('fault_detected') is not None:
             analysis = AnalysisResult(
-                battery_id=df['battery_id'].iloc[0] if 'battery_id' in df.columns else 0,
+                battery_id=int(df['battery_id'].iloc[0]) if 'battery_id' in df.columns else 0,
                 analysis_type='fault_detection',
                 result=json.dumps(result.get('predictions', {})),
                 confidence_score=result.get('confidence_score', 0.0),
@@ -453,21 +453,28 @@ def generate_comprehensive_explanations(df: pd.DataFrame, results: Dict[str, Any
     try:
         # Explicar detección de fallas
         if 'fault_detection' in results and results['fault_detection'].get('status') == 'success':
-            explanations['fault_detection'] = explainer.explain_fault_detection(
-                df, results['fault_detection']
-            )
+            # Asumimos que las explicaciones SHAP/LIME ya se agregaron en execute_fault_detection
+            # o en el endpoint específico de fault_detection si ese se usa.
+            # Aquí solo las recuperamos del diccionario de resultados.
+            explanations['fault_detection'] = {
+                'shap_values': results['fault_detection'].get('shap_values', []),
+                'lime_explanation': results['fault_detection'].get('lime_explanation', {})
+            }
         
         # Explicar predicción de salud
         if 'health_prediction' in results and results['health_prediction'].get('status') == 'success':
-            explanations['health_prediction'] = explainer.explain_health_prediction(
-                df, results['health_prediction']
-            )
+            # Asumimos que las explicaciones SHAP/LIME ya se agregaron en execute_health_prediction
+            # o en el endpoint específico de health_prediction.
+            explanations['health_prediction'] = {
+                'shap_values': results['health_prediction'].get('shap_values', []),
+                'lime_explanation': results['health_prediction'].get('lime_explanation', {})
+            }
         
         # Explicación general del sistema
         explanations['system_summary'] = generate_system_summary(results, level)
         
     except Exception as e:
-        logger.error(f"Error generando explicaciones: {str(e)}")
+        logger.error(f"Error generando explicaciones en comprehensive_explanations: {str(e)}")
         explanations['error'] = str(e)
     
     return explanations
@@ -653,19 +660,15 @@ def continuous_monitoring(battery_id):
 @cross_origin()
 @timing_decorator
 def detect_faults(battery_id):
-    """Detectar fallas específicas en una batería - Versión mejorada"""
     try:
         battery = Battery.query.get_or_404(battery_id)
         battery_metadata = extract_battery_metadata(battery)
         
-        # Obtener parámetros de la solicitud
         request_data = request.get_json() or {}
         analysis_level = request_data.get('analysis_level', 1)
         
-        # Obtener datos recientes
         recent_data = BatteryData.query.filter_by(battery_id=battery_id)\
             .order_by(BatteryData.timestamp.desc()).limit(100).all()
-        
         if len(recent_data) < 10:
             recent_data = generate_enhanced_sample_data(battery_id, 30, battery_metadata)
         
@@ -674,25 +677,50 @@ def detect_faults(battery_id):
             for point in recent_data
         ])
         
-        # Obtener modelo de detección de fallas
         models = get_or_create_models()
         fault_model = models['fault_model']
+        explainer_instance = models['xai_explainer'] # Obtener la instancia del XAIExplainer
         
-        # Ejecutar análisis
         result = execute_fault_detection(df, fault_model, analysis_level, battery_metadata)
         
-        # Agregar explicación
+        # --- AGREGAR EXPLICACIÓN XAI CORRECTAMENTE ---
         if result.get('status') == 'success':
-            explainer = models['xai_explainer']
-            explanation = explainer.explain_fault_detection(df, result)
-            result['explanation'] = explanation
-        
-        # Guardar en base de datos
+            try:
+                # 1. Crear el modelo dummy específico para la explicación de fallas
+                # 'result' aquí es el diccionario devuelto por execute_fault_detection
+                dummy_fault_model = fault_model._create_dummy_model_for_explanation(result)
+                
+                if dummy_fault_model:
+                    # 2. Llamar al método _add_xai_explanation INYECTADO en el fault_model
+                    # Este método modificará el diccionario 'result' in-place.
+                    fault_model._add_xai_explanation(
+                        explainer=explainer_instance,
+                        # Asegúrate que el input_data sea un array NumPy con la forma correcta
+                        # y solo las columnas que el modelo espera.
+                        input_data=df.iloc[-1][fault_model.feature_columns].values.reshape(1, -1),
+                        model_instance=dummy_fault_model, # ¡Usar el modelo dummy aquí!
+                        feature_names=fault_model.feature_columns,
+                        class_names=list(fault_model.fault_types.values()),
+                        fault_result=result # El diccionario 'result' se actualiza con las explicaciones
+                    )
+                else:
+                    logger.warning("No se pudo crear el modelo dummy de fallas para XAI. Las explicaciones no se generarán.")
+                    result['explanation'] = {'error': 'Dummy model creation failed for XAI'}
+            except Exception as e:
+                logger.error(f"Error generando explicaciones XAI en detect_faults: {str(e)}")
+                result['explanation'] = {'error': str(e)}
+        # --- FIN AGREGAR EXPLICACIÓN XAI ---
+
+        # Guardar en base de datos (asegúrate que tu función execute_fault_detection ya hace esto,
+        # o que esta sección esté después de guardar el resultado principal si es una explicación adicional)
+        # La línea `db.session.commit()` ya está en execute_fault_detection si la explicación se guarda allí.
+        # Si 'explanation' se añade a 'result' y luego 'result' se usa para guardar en DB, esto es suficiente.
         try:
-            db.session.commit()
-        except Exception:
+            db.session.commit() # Si el commit ocurre aquí, es importante que 'result' ya tenga las explicaciones
+        except Exception as e:
+            logger.error(f"Error en commit de DB en detect_faults: {str(e)}")
             db.session.rollback()
-        
+
         return jsonify({
             'success': True,
             'data': result
@@ -709,19 +737,15 @@ def detect_faults(battery_id):
 @cross_origin()
 @timing_decorator
 def predict_health(battery_id):
-    """Predecir estado de salud y vida útil restante - Versión mejorada"""
     try:
         battery = Battery.query.get_or_404(battery_id)
         battery_metadata = extract_battery_metadata(battery)
         
-        # Obtener parámetros de la solicitud
         request_data = request.get_json() or {}
         analysis_level = request_data.get('analysis_level', 1)
         
-        # Obtener datos históricos
         historical_data = BatteryData.query.filter_by(battery_id=battery_id)\
             .order_by(BatteryData.timestamp.asc()).all()
-        
         if len(historical_data) < 20:
             historical_data = generate_enhanced_sample_data(battery_id, 50, battery_metadata)
         
@@ -730,25 +754,43 @@ def predict_health(battery_id):
             for point in historical_data
         ])
         
-        # Obtener modelo de predicción de salud
         models = get_or_create_models()
         health_model = models['health_model']
+        explainer_instance = models['xai_explainer'] # Obtener la instancia del XAIExplainer
         
-        # Ejecutar análisis
         result = execute_health_prediction(df, health_model, analysis_level, battery_metadata)
         
-        # Agregar explicación
+        # --- AGREGAR EXPLICACIÓN XAI CORRECTAMENTE ---
         if result.get('status') == 'success':
-            explainer = models['xai_explainer']
-            explanation = explainer.explain_health_prediction(df, result)
-            result['explanation'] = explanation
-        
-        # Guardar en base de datos
+            try:
+                # 1. Crear el modelo dummy específico para la explicación de salud
+                dummy_health_model = health_model._create_dummy_health_model_for_explanation(result)
+                
+                if dummy_health_model:
+                    # 2. Llamar al método _add_xai_explanation INYECTADO en el health_model
+                    health_model._add_xai_explanation(
+                        explainer=explainer_instance,
+                        input_data=df.iloc[-1][health_model.feature_columns].values.reshape(1, -1),
+                        model_instance=dummy_health_model, # ¡Usar el modelo dummy aquí!
+                        feature_names=health_model.feature_columns,
+                        class_names=['SOH Prediction'], # Para regresión, puedes usar un nombre descriptivo
+                        health_result=result # El diccionario 'result' se actualiza con las explicaciones
+                    )
+                else:
+                    logger.warning("No se pudo crear el modelo dummy de salud para XAI. Las explicaciones no se generarán.")
+                    result['explanation'] = {'error': 'Dummy model creation failed for XAI'}
+            except Exception as e:
+                logger.error(f"Error generando explicaciones XAI en predict_health: {str(e)}")
+                result['explanation'] = {'error': str(e)}
+        # --- FIN AGREGAR EXPLICACIÓN XAI ---
+
+        # Guardar en base de datos (similar al caso de fault_detection)
         try:
             db.session.commit()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error en commit de DB en predict_health: {str(e)}")
             db.session.rollback()
-        
+
         return jsonify({
             'success': True,
             'data': result
