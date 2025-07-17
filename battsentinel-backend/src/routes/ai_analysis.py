@@ -485,7 +485,9 @@ def save_analysis_results(battery_id: int, results: Dict[str, Any], analysis_lev
                 comprehensive_result['confidence_score'] = 0.5 # Valor por defecto si no se encuentra
 
             comprehensive_result['explanation'] = json.dumps(results.get('explanations', {}))
-
+            
+        logger.debug(f"DEBUG: Antes de crear AnalysisResult para comprehensive_analysis: analysis_level={analysis_level}, type={type(analysis_level)}")
+        
         # Siempre creamos un registro para el análisis completo
         analysis = AnalysisResult(
             battery_id=battery_id,
