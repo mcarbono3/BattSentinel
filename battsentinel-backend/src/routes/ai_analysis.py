@@ -372,7 +372,7 @@ def execute_fault_detection(df: pd.DataFrame, model: FaultDetectionModel,
                 severity=result.get('severity'),
                 explanation=json.dumps(result.get('explanation', {})),
                 model_version=f'2.0-level{level}',
-                level_of_analysis=level # AÑADIDO: Asignar level_of_analysis
+                level_of_analysis=level if level is not None else 1 # AÑADIDO: Asignar level_of_analysis
             )
             db.session.add(analysis)
 
@@ -408,7 +408,7 @@ def execute_health_prediction(df: pd.DataFrame, model: HealthPredictionModel, le
                 rul_prediction=float(result.get('rul_days')) if result.get('rul_days') is not None else None,
                 explanation=json.dumps(result.get('explanation', {})),
                 model_version=f'2.0-level{level}',
-                level_of_analysis=level # AÑADIDO: Asignar level_of_analysis
+                level_of_analysis=level if level is not None else 1 # AÑADIDO: Asignar level_of_analysis
             )
             db.session.add(analysis)
 
