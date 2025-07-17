@@ -397,7 +397,7 @@ class ContinuousMonitoringEngine:
                     'features_analyzed': len(key_features.columns),
                     'level': 1
                 },
-                model_version='2.0-level1'
+                model_version='2.0-level1',
                 level_of_analysis=1,
             )
             
