@@ -698,7 +698,7 @@ class ContinuousMonitoringEngine:
             predictions={'error': True, 'message': error_msg},
             explanation={'error': error_msg},
             metadata={'level': 1, 'error': True},
-            model_version='2.0-error'
+            model_version='2.0-error',
             level_of_analysis=1,
         )
 
