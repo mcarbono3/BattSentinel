@@ -456,6 +456,11 @@ def execute_anomaly_detection(df: pd.DataFrame, engine: ContinuousMonitoringEngi
 
 def save_analysis_results(battery_id: int, results: Dict[str, Any], analysis_level: int):
     """Guardar resultados de análisis en la base de datos"""
+    # Validar que analysis_level tenga un valor válido
+    if analysis_level is None:
+        analysis_level = 1
+        logger.warning("analysis_level era None, usando valor por defecto: 1")
+    """Guardar resultados de análisis en la base de datos"""
     try:
         # Solo guardar los resultados finales de comprehensive_analysis
         # y los específicos de fault_detection/health_prediction que ya se añaden individualmente.
@@ -497,7 +502,7 @@ def save_analysis_results(battery_id: int, results: Dict[str, Any], analysis_lev
             model_version=f'2.0-level{analysis_level}',
             processing_time=None, # Se manejará a nivel de timing_decorator o se puede calcular aquí
             explanation=json.dumps(comprehensive_result.get('explanation', {})),
-            level_of_analysis=analysis_level
+            level_of_analysis=analysis_level if analysis_level is not None else 1
         )
         db.session.add(analysis)
         db.session.commit()
