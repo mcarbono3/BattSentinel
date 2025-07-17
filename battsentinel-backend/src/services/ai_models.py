@@ -4990,7 +4990,7 @@ class XAIExplainer:
             'confidence_factors': {},
             'technical_details': {},
             'error': error_msg
-        }",
+        },
             'feature_importance': {},
             'confidence_factors': {'overall_confidence': 0.0},
             'technical_details': {'error': error_msg}
