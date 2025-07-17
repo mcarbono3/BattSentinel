@@ -4930,45 +4930,67 @@ class XAIExplainer:
 # =============================================================================================
 
 # Agregar métodos XAI a FaultDetectionModel
-def _add_xai_explanation_to_fault_model(self, result: Dict[str, Any], df: pd.DataFrame, features: np.ndarray) -> Dict[str, Any]:
+def _add_xai_explanation_to_fault_model(self, result: Union[Dict[str, Any], str], df: pd.DataFrame, features: np.ndarray) -> Dict[str, Any]:
     """Agregar explicación XAI al resultado de detección de fallas"""
+    # Siempre asegúrate de que 'processed_result' sea un diccionario para evitar errores de tipo.
+    # Si llega una cadena, es un error del proceso anterior, lo convertimos a un dict de error.
+    if isinstance(result, str):
+        logger.error(f"Se recibió una cadena de texto inesperada como 'result' en _add_xai_explanation_to_fault_model: '{result}'. Convirtiendo a dict de error.")
+        processed_result = {
+            'error': result,
+            'analysis_details': {'level': 1},  # Establece un nivel bajo para evitar el retorno temprano si no aplica
+            'xai_explanation': {'error': f"Error en procesamiento previo: {result}"} # Añade explicación de error inicial
+        }
+        return processed_result # Retorna inmediatamente con el error si el 'result' es una cadena
+    else:
+        processed_result = result # Si es un dict, lo usamos directamente
+
     try:
-        if result.get('analysis_details', {}).get('level', 1) < 2:
-            return result  # Solo para Nivel 2
-        
+        # Ahora trabajamos con 'processed_result', que garantizamos que es un diccionario
+        if processed_result.get('analysis_details', {}).get('level', 1) < 2:
+            return processed_result  # Solo para Nivel 2
+
         # Inicializar explicador XAI
+        # Asumo que XAIExplainer está definido y disponible
         xai_explainer = XAIExplainer()
-        
+
         # Preparar datos para explicación
         feature_names = self._get_feature_names_for_explanation(df)
-        
+
         # Usar modelo ensemble para explicación
-        dummy_model = self._create_dummy_model_for_explanation(result)
-        
+        # Asegúrate de pasar 'processed_result' aquí también
+        dummy_model = self._create_dummy_model_for_explanation(processed_result)
+
         if dummy_model and len(features) > 0:
             xai_explainer.initialize_explainers(
-                dummy_model, 
-                features, 
-                feature_names, 
+                dummy_model,
+                features,
+                feature_names,
                 'classification'
             )
-            
+
             # Generar explicación
+            # Asegúrate de pasar 'processed_result' aquí también
             explanation = xai_explainer.explain_prediction(
-                dummy_model, 
-                features[-1:], 
-                result
+                dummy_model,
+                features[-1:],
+                processed_result
             )
-            
+
             # Agregar explicación al resultado
-            result['xai_explanation'] = explanation
-        
-        return result
+            processed_result['xai_explanation'] = explanation
+
+        return processed_result  # Retorna processed_result
         
     except Exception as e:
-        logger.error(f"Error agregando explicación XAI a detección de fallas: {str(e)}")
-        result['xai_explanation'] = {'error': str(e)}
-        return result
+        logger.error(f"Error agregando explicación XAI a detección de fallas: {str(e)}", exc_info=True)
+        # Asegúrate de que 'processed_result' sea un dict para poder añadir 'xai_explanation'
+        if not isinstance(processed_result, dict):
+            # Si por alguna razón processed_result dejó de ser un dict (aunque debería serlo ahora),
+            # creamos uno para añadir el error.
+            processed_result = {}
+        processed_result['xai_explanation'] = {'error': str(e)}
+        return processed_result
 
 # Agregar métodos XAI a HealthPredictionModel
 def _add_xai_explanation_to_health_model(self, result: Dict[str, Any], df: pd.DataFrame, features: np.ndarray) -> Dict[str, Any]:
