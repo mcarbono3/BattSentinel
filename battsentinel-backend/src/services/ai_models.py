@@ -36,12 +36,12 @@ from src.services.ai_models import (
 )
 
 import inspect
-# Configuración de logging (MOVIMIENTO: Subido al inicio del archivo)
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 logger.info(f"DEBUG: Atributos de AnalysisResult al cargar ai_analysis.py: {AnalysisResult.__dict__.keys()}")
 logger.info(f"DEBUG: Archivo de AnalysisResult cargado: {inspect.getfile(AnalysisResult)}")
+
+# Configuración de logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 ai_bp = Blueprint('ai', __name__)
 
@@ -333,16 +333,11 @@ def execute_continuous_monitoring(df: pd.DataFrame, engine: ContinuousMonitoring
     """Ejecutar monitoreo continuo (Nivel 1)"""
     try:
         result = engine.analyze_continuous(df, metadata)
-        # MODIFICACIÓN CLAVE: Usar getattr para acceder a 'confidence' de forma segura
-        # Esto usa result.confidence si existe, de lo contrario, 0.0.
-        # La solución robusta es que analyze_continuous en ai_models.py siempre retorne 'confidence'.
-        confidence_value = getattr(result, 'confidence', 0.0) 
-        
         return {
             'status': 'success',
             'analysis_type': 'continuous_monitoring',
             'timestamp': result.timestamp.isoformat(),
-            'confidence_score': confidence_value, # Asignamos al campo confidence_score de la respuesta
+            'confidence_score': result.confidence_score,
             'predictions': result.predictions,
             'explanation': result.explanation,
             'metadata': result.metadata
@@ -364,7 +359,6 @@ def execute_fault_detection(df: pd.DataFrame, model: FaultDetectionModel,
         # Guardar en base de datos si es exitoso
         if result.get('fault_detected') is not None:
             analysis = AnalysisResult(
-                # MODIFICACIÓN CLAVE: Asegurar que battery_id sea int
                 battery_id=int(df['battery_id'].iloc[0]) if 'battery_id' in df.columns else 0,
                 analysis_type='fault_detection',
                 result=json.dumps(result.get('predictions', {})),
@@ -391,7 +385,8 @@ def execute_fault_detection(df: pd.DataFrame, model: FaultDetectionModel,
             'analysis_type': 'fault_detection'
         }
 
-def execute_health_prediction(df: pd.DataFrame, model: HealthPredictionModel, level: int, metadata: Optional[BatteryMetadata]) -> Dict[str, Any]:
+def execute_health_prediction(df: pd.DataFrame, model: HealthPredictionModel, 
+                            level: int, metadata: Optional[BatteryMetadata]) -> Dict[str, Any]:
     """Ejecutar predicción de salud"""
     try:
         result = model.analyze(df, level=level)
@@ -399,13 +394,11 @@ def execute_health_prediction(df: pd.DataFrame, model: HealthPredictionModel, le
         # Guardar en base de datos si es exitoso
         if result.get('current_soh') is not None:
             analysis = AnalysisResult(
-                # MODIFICACIÓN CLAVE: Asegurar que battery_id sea int
-                battery_id=int(df['battery_id'].iloc[0]) if 'battery_id' in df.columns else 0,
+                battery_id=df['battery_id'].iloc[0] if 'battery_id' in df.columns else 0,
                 analysis_type='health_prediction',
                 result=json.dumps(result.get('predictions', {})),
                 confidence_score=float(result.get('confidence_score', 0.0)),
-                # MODIFICACIÓN CLAVE: Convertir rul_days a float para evitar numpy.int64
-                rul_prediction=float(result.get('rul_days')) if result.get('rul_days') is not None else None,
+                rul_prediction=result.get('rul_days'),
                 explanation=json.dumps(result.get('explanation', {})),
                 model_version=f'2.0-level{level}'
             )
@@ -425,11 +418,13 @@ def execute_health_prediction(df: pd.DataFrame, model: HealthPredictionModel, le
             'analysis_type': 'health_prediction'
         }
 
-def execute_anomaly_detection(df: pd.DataFrame, engine: ContinuousMonitoringEngine, metadata: Optional[BatteryMetadata]) -> Dict[str, Any]:
+def execute_anomaly_detection(df: pd.DataFrame, engine: ContinuousMonitoringEngine, 
+                            metadata: Optional[BatteryMetadata]) -> Dict[str, Any]:
     """Ejecutar detección de anomalías específica"""
     try:
         # Usar el motor de monitoreo continuo para detección de anomalías
         result = engine.analyze_continuous(df, metadata)
+        
         # Extraer información específica de anomalías
         predictions = result.predictions
         anomaly_info = {
@@ -440,6 +435,7 @@ def execute_anomaly_detection(df: pd.DataFrame, engine: ContinuousMonitoringEngi
             'analysis_timestamp': result.timestamp.isoformat(),
             'data_points_analyzed': result.metadata.get('data_points', 0)
         }
+        
         return {
             'status': 'success',
             'analysis_type': 'anomaly_detection',
@@ -453,157 +449,39 @@ def execute_anomaly_detection(df: pd.DataFrame, engine: ContinuousMonitoringEngi
             'analysis_type': 'anomaly_detection'
         }
 
-def save_analysis_results(battery_id: int, results: Dict[str, Any], analysis_level: int):
-    """Guardar resultados de análisis en la base de datos"""
-    try:
-        # Solo guardar los resultados finales de comprehensive_analysis
-        # y los específicos de fault_detection/health_prediction que ya se añaden individualmente.
-        # Aquí consolidamos o creamos el registro de comprehensive_analysis
-        
-        comprehensive_result = results.get('comprehensive_analysis', {})
-        if not comprehensive_result: # Si no se generó explícitamente, creamos uno resumido
-            comprehensive_result = {
-                "level": analysis_level,
-                "results_summary": {
-                    "continuous_monitoring": results.get('continuous_monitoring', {}).get('status', 'not_run'),
-                    "fault_detection": results.get('fault_detection', {}).get('status', 'not_run'),
-                    "health_prediction": results.get('health_prediction', {}).get('status', 'not_run'),
-                    "anomaly_detection": results.get('anomaly_detection', {}).get('status', 'not_run'),
-                    "explanations": "generated" if 'explanations' in results else "not_included"
-                },
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
-            # Incluir un confidence score general si está disponible de algún análisis
-            if 'fault_detection' in results and results['fault_detection'].get('confidence_score') is not None:
-                comprehensive_result['confidence_score'] = float(results['fault_detection']['confidence_score'])
-            elif 'health_prediction' in results and results['health_prediction'].get('confidence_score') is not None:
-                comprehensive_result['confidence_score'] = float(results['health_prediction']['confidence_score'])
-            elif 'continuous_monitoring' in results and results['continuous_monitoring'].get('confidence_score') is not None:
-                comprehensive_result['confidence_score'] = float(results['continuous_monitoring']['confidence_score'])
-            else:
-                comprehensive_result['confidence_score'] = 0.5 # Valor por defecto si no se encuentra
-                
-            comprehensive_result['explanation'] = json.dumps(results.get('explanations', {}))
-        
-        # Siempre creamos un registro para el análisis completo
-        analysis = AnalysisResult(
-            battery_id=battery_id,
-            analysis_type='comprehensive_analysis',
-            result=json.dumps(comprehensive_result), # Guardar el resultado completo aquí
-            confidence_score=float(comprehensive_result.get('confidence_score', 0.0)),
-            model_version=f'2.0-level{analysis_level}',
-            processing_time=None, # Se manejará a nivel de timing_decorator o se puede calcular aquí
-            explanation=json.dumps(comprehensive_result.get('explanation', {})),
-            level_of_analysis=analysis_level
-        )
-        db.session.add(analysis)
-        db.session.commit()
-        logger.info(f"Resultados del análisis completo para batería {battery_id} guardados exitosamente.")
-
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error guardando resultados del análisis completo: {str(e)}")
-
-def generate_comprehensive_explanations(df: pd.DataFrame, results: Dict[str, Any], explainer: XAIExplainer, level: int) -> Dict[str, Any]:
+def generate_comprehensive_explanations(df: pd.DataFrame, results: Dict[str, Any], 
+                                      explainer: XAIExplainer, level: int) -> Dict[str, Any]:
     """Generar explicaciones comprensivas para todos los análisis"""
     explanations = {}
+    
     try:
         # Explicar detección de fallas
         if 'fault_detection' in results and results['fault_detection'].get('status') == 'success':
             # Asumimos que las explicaciones SHAP/LIME ya se agregaron en execute_fault_detection
-            # o se generan aquí si el modelo lo permite
-            fault_result = results['fault_detection']
-            fault_type = fault_result.get('fault_type')
-            if fault_type and explainer:
-                try:
-                    # Aquí asumo que fault_result ya tiene los datos necesarios para la explicación o se pueden reconstruir
-                    # Esta parte puede necesitar más lógica si los modelos XAI requieren inputs específicos
-                    explanation_text = explainer._generate_fault_explanation(fault_type, fault_result.get('feature_importances', {}))
-                    explanations['fault_detection'] = {
-                        'summary': explanation_text,
-                        'details': fault_result.get('explanation', {}) # Mantener detalles originales si existen
-                    }
-                except Exception as ex:
-                    logger.warning(f"Error generando explicación para detección de fallas: {str(ex)}")
-                    explanations['fault_detection'] = {"summary": "Explicación no disponible"}
-
+            # o en el endpoint específico de fault_detection si ese se usa.
+            # Aquí solo las recuperamos del diccionario de resultados.
+            explanations['fault_detection'] = {
+                'shap_values': results['fault_detection'].get('shap_values', []),
+                'lime_explanation': results['fault_detection'].get('lime_explanation', {})
+            }
+        
         # Explicar predicción de salud
         if 'health_prediction' in results and results['health_prediction'].get('status') == 'success':
-            health_result = results['health_prediction']
-            if explainer:
-                try:
-                    explanation_text = explainer._generate_health_explanation(health_result, health_result.get('feature_importances', {}))
-                    explanations['health_prediction'] = {
-                        'summary': explanation_text,
-                        'details': health_result.get('explanation', {})
-                    }
-                except Exception as ex:
-                    logger.warning(f"Error generando explicación para predicción de salud: {str(ex)}")
-                    explanations['health_prediction'] = {"summary": "Explicación no disponible"}
-                    
-        # Generar resumen de resultados
-        results_summary = results.get('comprehensive_analysis', {}).get('results_summary', {})
-        strategic_recommendations = _generate_strategic_recommendations(results_summary, results)
+            # Asumimos que las explicaciones SHAP/LIME ya se agregaron en execute_health_prediction
+            # o en el endpoint específico de health_prediction.
+            explanations['health_prediction'] = {
+                'shap_values': results['health_prediction'].get('shap_values', []),
+                'lime_explanation': results['health_prediction'].get('lime_explanation', {})
+            }
         
-        explanations['strategic_recommendations'] = strategic_recommendations
-
-        return explanations
-
+        # Explicación general del sistema
+        explanations['system_summary'] = generate_system_summary(results, level)
+        
     except Exception as e:
-        logger.error(f"Error generando explicaciones comprensivas: {str(e)}")
-        return {"error": f"Error generando explicaciones: {str(e)}"}
-
-def _generate_strategic_recommendations(results_summary: Dict[str, str], analysis_results: Dict[str, Any]) -> List[str]:
-    """Generar recomendaciones estratégicas basadas en el resumen de resultados"""
-    recommendations = []
+        logger.error(f"Error generando explicaciones en comprehensive_explanations: {str(e)}")
+        explanations['error'] = str(e)
     
-    try:
-        # Recomendaciones basadas en el estado general
-        if results_summary.get('fault_detection') == 'error' or analysis_results.get('fault_detection', {}).get('fault_detected', False):
-            recommendations.extend([
-                "ATENCIÓN CRÍTICA: Fallas detectadas. Requiere inspección inmediata.",
-                "Se recomienda análisis de Nivel 2 para diagnóstico detallado"
-            ])
-            if analysis_results.get('fault_detection', {}).get('severity') == 'critical':
-                 recommendations.append("RIESGO DE FALLA MAYOR: Desconectar batería y realizar mantenimiento correctivo urgente.")
-            
-        elif results_summary.get('health_prediction') == 'error' or (analysis_results.get('health_prediction', {}).get('rul_prediction') is not None and analysis_results['health_prediction']['rul_prediction'] < 90): # RUL bajo
-            recommendations.extend([
-                "DEGRADACIÓN AVANZADA: Planificar reemplazo de batería a corto plazo.",
-                "Considerar análisis de costo-beneficio para reemplazo temprano"
-            ])
-        
-        else:
-            recommendations.extend([
-                "ESTRATEGIA DE MANTENIMIENTO: Continuar con programa regular",
-                "Análisis de Nivel 2 mensual recomendado",
-                "Mantener condiciones operacionales actuales"
-            ])
-        
-        # Recomendaciones específicas basadas en análisis individuales
-        if 'health_prediction' in analysis_results: # Cambiado de 'advanced_health_prediction' a 'health_prediction'
-            health_result = analysis_results['health_prediction'] # Cambiado de 'advanced_health_prediction' a 'health_prediction'
-            rul_days = health_result.get('rul_prediction', 365) # Usa 'rul_prediction' que es lo que guardamos
-            
-            if rul_days is not None: # Asegurar que rul_days no sea None
-                if rul_days < 180:
-                    recommendations.append(f"Planificar reemplazo en {int(rul_days)} días máximo")
-                elif rul_days < 365:
-                    recommendations.append(f"Considerar reemplazo en próximos {int(rul_days)} días")
-        
-        if 'continuous_monitoring' in analysis_results: # Aquí también puedes usar 'continuous_monitoring'
-            monitoring_result = analysis_results['continuous_monitoring']
-            # Asumo que 'prediction_uncertainty' o similar puede venir del monitoreo continuo si lo implementas
-            uncertainty = monitoring_result.get('prediction_uncertainty', 0) # Asegúrate de que este campo exista
-            
-            if uncertainty > 0.15: # Ajusta el umbral de incertidumbre según tus modelos
-                recommendations.append("Recopilar más datos para reducir incertidumbre en predicciones (monitoreo continuo)")
-        
-        return recommendations
-        
-    except Exception as e:
-        logger.error(f"Error generando recomendaciones estratégicas: {str(e)}")
-        return ["Error generando recomendaciones - contactar soporte técnico"]
+    return explanations
 
 def generate_system_summary(results: Dict[str, Any], level: int) -> Dict[str, Any]:
     """Generar resumen general del sistema"""
