@@ -403,7 +403,7 @@ class ContinuousMonitoringEngine:
             
         except Exception as e:
             logger.error(f"Error en análisis continuo: {str(e)}")
-            return {"error": str(e), "explanation": "Error generando explicación", "details": {}} self._create_error_result(str(e), 'continuous_monitoring')
+            return self._create_error_result(str(e), 'continuous_monitoring')
     
     def _select_key_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Seleccionar características clave para análisis rápido"""
