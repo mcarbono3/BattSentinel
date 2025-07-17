@@ -4985,12 +4985,7 @@ class XAIExplainer:
         return {
             'shap_explanation': None,
             'lime_explanation': None,
-            'natural_language_explanation': f"Error generando explicación: {error_msg}",
-            'feature_importance': {},
-            'confidence_factors': {},
-            'technical_details': {},
-            'error': error_msg
-        },
+            'natural_language_explanation': f"Error generando explicación: {error_msg}",      
             'feature_importance': {},
             'confidence_factors': {'overall_confidence': 0.0},
             'technical_details': {'error': error_msg}
