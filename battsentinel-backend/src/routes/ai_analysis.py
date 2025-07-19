@@ -524,10 +524,7 @@ def generate_comprehensive_explanations(df: pd.DataFrame, results: Dict[str, AIA
     try:
         fault_detection_result = results.get('fault_detection')
         fd_status = getattr(fault_detection_result, 'status', None)
-    try:
-        fault_detection_result = results.get('fault_detection')
-        fd_status = getattr(fault_detection_result, 'status', None) # Default a None si no existe o es None
-        
+
         if fault_detection_result and fd_status == 'success':
             explanations['fault_detection'] = explainer.explain_fault_detection(
                 df, fault_detection_result.predictions
