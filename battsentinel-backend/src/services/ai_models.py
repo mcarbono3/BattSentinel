@@ -315,7 +315,13 @@ class DataPreprocessor:
                 df_filtered[f'{param}_filtered'] = df_filtered[param].rolling(
                     window=3, min_periods=1, center=True
                 ).mean()
-                z_scores = np.abs((df_filtered[param] - df_filtered[param].mean()) / df_filtered[param].std())
+                
+                param_std = df_filtered[param].std()
+                if param_std == 0:
+                    z_scores = np.zeros(len(df_filtered[param]))
+                else:
+                    z_scores = np.abs((df_filtered[param] - df_filtered[param].mean()) / param_std)
+                
                 outlier_mask = z_scores > 4
                 df_filtered.loc[outlier_mask, param] = df_filtered[param].median()
         return df_filtered
