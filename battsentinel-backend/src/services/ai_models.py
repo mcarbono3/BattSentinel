@@ -851,7 +851,7 @@ class FaultDetectionModel:
         except Exception as e:
             logger.error(f"Error entrenando modelos de detección de fallas: {str(e)}")
 
-    def predict_fault(self, df: pd.DataFrame, battery_metadata: Optional[BatteryMetadata] = None) -> AnalysisResult:
+    def predict_fault(self, df: pd.DataFrame, level: int = 2, battery_metadata: Optional[BatteryMetadata] = None) -> AnalysisResult:
         """Predecir fallas usando el modelo avanzado (Nivel 2)"""
         start_time = datetime.now()
         try:
@@ -1017,7 +1017,7 @@ class HealthPredictionModel:
             except Exception as e:
                 logger.error(f"Error entrenando modelos de salud RF: {str(e)}")
 
-    def predict_health(self, df: pd.DataFrame, battery_metadata: Optional[BatteryMetadata] = None) -> AnalysisResult:
+    def predict_health(self, df: pd.DataFrame, level: int = 2, battery_metadata: Optional[BatteryMetadata] = None) -> AnalysisResult:
         """Predecir SOH y RUL usando el modelo avanzado (Nivel 2)"""
         start_time = datetime.now()
         try:
