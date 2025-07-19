@@ -310,7 +310,36 @@ def analyze_battery(battery_id: int):
                 'error': error_message,
                 'error_type': 'dataframe_processing_error'
             }), 500
+            
+        # --- AÑADIR PASOS DE PREPROCESAMIENTO DE DATOS AQUÍ ---
+        # 1. Convertir la columna 'timestamp' a tipo datetime
+        if 'timestamp' in df.columns:
+            # Asegúrate de que el formato sea el correcto o que pandas pueda inferirlo.
+            # Convertir a UTC para consistencia.
+            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
+            # Eliminar filas donde el timestamp no pudo ser convertido
+            df.dropna(subset=['timestamp'], inplace=True)
+            df = df.sort_values(by='timestamp').reset_index(drop=True) # Asegurar orden cronológico
 
+        # 2. Manejar valores no numéricos, NaN o infinitos en columnas relevantes
+        # Excluir 'timestamp' y otras columnas no numéricas que no deben ser tratadas así
+        numeric_cols = [col for col in df.select_dtypes(include=np.number).columns if col not in ['battery_id', 'cycles']] # Ajusta si tienes más columnas no relevantes para este tratamiento
+        
+        if numeric_cols: # Asegúrate de que haya columnas numéricas para procesar
+            # Reemplazar infinitos con NaN
+            df[numeric_cols] = df[numeric_cols].replace([np.inf, -np.inf], np.nan)
+            
+            # Rellenar NaN con la media de la columna (o el método que sea apropiado para tu aplicación)
+            # Es importante no usar una media NaN si toda la columna es NaN.
+            for col in numeric_cols:
+                if df[col].isnull().any():
+                    mean_val = df[col].mean()
+                    if pd.isna(mean_val):
+                        df[col] = df[col].fillna(0) # Si toda la columna es NaN, rellena con 0
+                        logger.warning(f"Columna '{col}' contenía solo NaN después de eliminar infinitos. Rellenada con 0.")
+                    else:
+                        df[col] = df[col].fillna(mean_val)
+                        
         # Obtener los modelos de IA inicializados
         models = get_or_create_models()
 
@@ -493,22 +522,31 @@ def generate_comprehensive_explanations(df: pd.DataFrame, results: Dict[str, AIA
     """
     explanations = {}
     try:
-        # Asegúrate de que explainer.explain_fault_detection y explain_health_prediction
-        # puedan manejar directamente el diccionario de 'predictions' del AIAnalysisResult
-        if 'fault_detection' in results and results['fault_detection'].status == 'success':
+        fault_detection_result = results.get('fault_detection')
+        fd_status = getattr(fault_detection_result, 'status', None)
+    try:
+        fault_detection_result = results.get('fault_detection')
+        fd_status = getattr(fault_detection_result, 'status', None) # Default a None si no existe o es None
+        
+        if fault_detection_result and fd_status == 'success':
             explanations['fault_detection'] = explainer.explain_fault_detection(
-                df, results['fault_detection'].predictions
+                df, fault_detection_result.predictions
             )
         else:
-            explanations['fault_detection'] = {"summary": "Análisis de fallas no ejecutado o con errores."}
+            error_msg = getattr(fault_detection_result, 'error', 'Error desconocido') if fault_detection_result else "Análisis de fallas no ejecutado o con errores."
+            explanations['fault_detection'] = {"summary": f"Análisis de fallas no ejecutado o con errores: {error_msg}"}
 
 
-        if 'health_prediction' in results and results['health_prediction'].status == 'success':
+        health_prediction_result = results.get('health_prediction')
+        hp_status = getattr(health_prediction_result, 'status', None) # Default a None si no existe o es None
+        
+        if health_prediction_result and hp_status == 'success':
             explanations['health_prediction'] = explainer.explain_health_prediction(
-                df, results['health_prediction'].predictions
+                df, health_prediction_result.predictions
             )
         else:
-            explanations['health_prediction'] = {"summary": "Análisis de salud no ejecutado o con errores."}
+            error_msg = getattr(health_prediction_result, 'error', 'Error desconocido') if health_prediction_result else "Análisis de salud no ejecutado o con errores."
+            explanations['health_prediction'] = {"summary": f"Análisis de salud no ejecutado o con errores: {error_msg}"}
 
         explanations['system_summary'] = generate_system_summary(results, level)
 
@@ -535,9 +573,10 @@ def generate_system_summary(results: Dict[str, AIAnalysisResult], level: int) ->
 
     if 'continuous_monitoring' in results:
         cm_result = results['continuous_monitoring']
+        cm_status = getattr(cm_result, 'status', 'error')
         if cm_result.status == 'error':
             summary['priority_alerts'].append({
-                'type': 'continuous_monitoring', 'severity': 'error', 'message': f"Error en monitoreo continuo: {cm_result.error}"
+                'type': 'continuous_monitoring', 'severity': 'error', 'message': f"Error en monitoreo continuo: {getattr(cm_result, 'error', 'Error desconocido')}"
             })
         elif cm_result.predictions.get('issues_detected'):
             severity = cm_result.predictions.get('severity', 'low')
@@ -553,9 +592,10 @@ def generate_system_summary(results: Dict[str, AIAnalysisResult], level: int) ->
 
     if 'fault_detection' in results:
         fd_result = results['fault_detection']
+        fd_status = getattr(fd_result, 'status', 'error')
         if fd_result.status == 'error':
             summary['priority_alerts'].append({
-                'type': 'fault_detection', 'severity': 'error', 'message': f"Error en detección de fallas: {fd_result.error}"
+                'type': 'fault_detection', 'severity': 'error', 'message': f"Error en detección de fallas: {getattr(fd_result, 'error', 'Error desconocido')}"
             })
         elif fd_result.predictions.get('overall_fault_detected'):
             severity = fd_result.predictions.get('severity', 'low')
@@ -572,9 +612,10 @@ def generate_system_summary(results: Dict[str, AIAnalysisResult], level: int) ->
 
     if 'health_prediction' in results:
         hp_result = results['health_prediction']
+        hp_status = getattr(hp_result, 'status', 'error')
         if hp_result.status == 'error':
             summary['priority_alerts'].append({
-                'type': 'health_prediction', 'severity': 'error', 'message': f"Error en predicción de salud: {hp_result.error}"
+                'type': 'health_prediction', 'severity': 'error', 'message': f"Error en predicción de salud: {getattr(hp_result, 'error', 'Error desconocido')}"
             })
         else:
             soh = hp_result.predictions.get('current_soh', 100)
@@ -691,76 +732,117 @@ def calculate_overall_confidence(results_output_json: Dict[str, Any]) -> float:
 
 # Endpoints específicos mejorados
 
+# Endpoints específicos mejorados
 @ai_bp.route('/continuous-monitoring/<int:battery_id>', methods=['POST'])
 @cross_origin()
 @timing_decorator
-def continuous_monitoring(battery_id):
-    """Endpoint específico para monitoreo continuo (Nivel 1)"""
+def continuous_monitoring(battery_id: int):
+    """
+    Endpoint específico para el monitoreo continuo de la batería (Nivel 1).
+    Puede generar datos de ejemplo si los datos reales son insuficientes.
+    """
     try:
         battery = Battery.query.get_or_404(battery_id)
         battery_metadata = extract_battery_metadata(battery)
 
-        # Obtener datos recientes (ventana más pequeña para monitoreo continuo)
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=1)  # Solo última hora
+        request_data = request.get_json() or {}
+        # time_window_hours del request, o un valor predeterminado si no se especifica
+        time_window_hours = request_data.get('time_window_hours', 24) # Default 24 horas para monitoreo continuo
+
+        # Obtener datos recientes para Nivel 1 (desde `now` hacia atrás)
+        cutoff_time_level1 = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
         recent_data = BatteryData.query.filter(
             BatteryData.battery_id == battery_id,
-            BatteryData.timestamp >= cutoff_time
-        ).order_by(BatteryData.timestamp.desc()).limit(50).all()
+            BatteryData.timestamp >= cutoff_time_level1
+        ).order_by(BatteryData.timestamp.desc()).all() # No limitar para asegurar todos los disponibles
 
-        if len(recent_data) < 5:
-            recent_data = generate_enhanced_sample_data(battery_id, 20, battery_metadata)
+        min_data_required_level1 = SYSTEM_CONFIG['min_data_points_level1']
+
+        if len(recent_data) < min_data_required_level1:
+            logger.info(f"Datos insuficientes para monitoreo Nivel 1 ({len(recent_data)}). Generando datos de ejemplo.")
+            # Generar más datos de los mínimos para simular un stream
+            recent_data = generate_enhanced_sample_data(battery_id, max(min_data_required_level1, 20), battery_metadata)
 
         df = pd.DataFrame([
             point.to_dict() if hasattr(point, 'to_dict') else point
             for point in recent_data
         ])
 
-        # Obtener motor de monitoreo continuo
+        if df.empty:
+            error_message = "Error: No se pudieron procesar los datos para monitoreo continuo. El DataFrame resultante está vacío."
+            logger.error(error_message)
+            return jsonify({
+                'success': False,
+                'error': error_message,
+                'error_type': 'dataframe_processing_error_monitoring'
+            }), 500
+
+        # --- AÑADIR PASOS DE PREPROCESAMIENTO DE DATOS AQUÍ (similares a analyze_battery) ---
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
+            df.dropna(subset=['timestamp'], inplace=True)
+            df = df.sort_values(by='timestamp').reset_index(drop=True)
+
+        numeric_cols = [col for col in df.select_dtypes(include=np.number).columns if col not in ['battery_id', 'cycles']]
+        if numeric_cols:
+            df[numeric_cols] = df[numeric_cols].replace([np.inf, -np.inf], np.nan)
+            for col in numeric_cols:
+                if df[col].isnull().any():
+                    mean_val = df[col].mean()
+                    if pd.isna(mean_val):
+                        df[col] = df[col].fillna(0)
+                    else:
+                        df[col] = df[col].fillna(mean_val)
+        # ----------------------------------------------------------------------------------
+
         models = get_or_create_models()
         engine = models['continuous_engine']
 
-        # Definir el nivel para este endpoint: siempre Nivel 1 para monitoreo continuo
-        analysis_level = 1
-        # ### CORRECCIÓN: Obtener include_explanation del request_data, no directamente del request.get_json()
-        request_data = request.get_json() or {}
+        analysis_level = 1 # Este endpoint siempre es Nivel 1
         include_explanation = request_data.get('include_explanation', False)
 
-        # Ejecutar análisis
-        # ### CAMBIO: Pasar todos los argumentos requeridos a execute_continuous_monitoring
-        result_ai_analysis = execute_continuous_monitoring(battery_id, df, engine, battery_metadata, analysis_level, include_explanation)
+        # Ejecutar el monitoreo continuo
+        result_ai_analysis = execute_continuous_monitoring(
+            battery_id, df, engine, battery_metadata, analysis_level, include_explanation
+        )
 
-        # Comitear después de cada endpoint específico, si no es parte de un análisis completo.
-        # Esto podría ser opcional y depender de si se desea guardar cada análisis individualmente.
-        # Por simplicidad y consistencia con los otros endpoints específicos, se añade un commit aquí.
+        # Preparar la respuesta JSON
+        response_data = result_ai_analysis.to_dict()
+
+        # Intentar guardar los resultados en la base de datos
         try:
-            # ### CAMBIO: Guardar el resultado en la base de datos
+            # Dado que save_analysis_results espera un diccionario con todos los análisis,
+            # lo envolvemos en un dict para que pueda ser procesado correctamente.
+            # Solo guardamos el resultado específico de monitoreo aquí.
             db_analysis = DBAnalysisResult(
                 battery_id=battery_id,
                 analysis_type='continuous_monitoring',
-                result=json.dumps(result_ai_analysis.predictions), # Convertir predicciones a JSON string
+                result=json.dumps(result_ai_analysis.predictions),
                 confidence=result_ai_analysis.confidence,
-                explanation=json.dumps(result_ai_analysis.explanation),
+                explanation=json.dumps(result_ai_analysis.explanation.to_dict()) if result_ai_analysis.explanation else None, # Convertir a dict
                 model_version=f'2.0-level{analysis_level}',
                 level_of_analysis=analysis_level
             )
             db.session.add(db_analysis)
             db.session.commit()
+            logger.info(f"Resultados de monitoreo continuo (Nivel {analysis_level}) guardados para batería {battery_id}.")
         except Exception as e:
             db.session.rollback()
-            logger.error(f"Error guardando resultados de monitoreo continuo: {str(e)}")
-            # No se devuelve un error 500 para no ocultar el resultado del análisis en sí
-            # pero se registra la falla en el guardado.
+            logger.error(f"Error guardando resultados de monitoreo continuo para batería {battery_id}: {str(e)}", exc_info=True)
+            # No se devuelve un error 500 al usuario final por un fallo de guardado,
+            # el monitoreo se realizó correctamente pero la persistencia falló.
 
         return jsonify({
             'success': True,
-            'data': result_ai_analysis.to_dict() # ### CAMBIO: Convertir el objeto AIAnalysisResult a dict para la respuesta JSON
+            'data': response_data
         })
     except Exception as e:
-        logger.error(f"Error en monitoreo continuo: {str(e)}")
-        db.session.rollback() # Asegurar rollback en caso de error en el endpoint
+        logger.error(f"Error en endpoint de monitoreo continuo para batería {battery_id}: {str(e)}", exc_info=True)
+        db.session.rollback()
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': str(e),
+            'error_type': 'continuous_monitoring_endpoint_error'
         }), 500
         
 @ai_bp.route('/fault-detection/<int:battery_id>', methods=['POST'])
