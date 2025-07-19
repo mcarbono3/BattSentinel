@@ -1,4 +1,4 @@
-    """
+"""
 BattSentinel AI Analysis Routes - Versión Mejorada 2.0
 Sistema de Monitoreo de Baterías de Clase Industrial
 
