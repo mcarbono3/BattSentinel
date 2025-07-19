@@ -239,6 +239,8 @@ def analyze_battery(battery_id):
         # Validar y obtener parámetros
         request_data = request.get_json() or {}
         params = validate_analysis_request(request_data)
+        # Asignacion manual para que ejecute el analisis profundo de IA
+        params['analysis_level'] = 2
 
         # Extraer metadatos de la batería
         battery_metadata = extract_battery_metadata(battery)
