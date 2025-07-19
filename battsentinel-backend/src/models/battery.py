@@ -85,7 +85,8 @@ class Battery(db.Model):
             data['temperature'] = None
             data['is_plugged'] = None
             data['latest_timestamp'] = None
-        
+        # 3. CORRECCIÓN CRÍTICA: Campo current_soh para el frontend
+        data['current_soh'] = data['soh']  # Alias para compatibilidad con frontend
         # 4. Finalmente, retornar el diccionario 'data' completo
         return data
 
