@@ -750,6 +750,12 @@ class FaultDetectionModel:
             'electrolyte_loss': 'high', 'lithium_plating': 'high',
             'unknown': 'none' # Añadido para manejar casos desconocidos
         }
+        self.numerical_severity_levels = {
+            'none': 0,
+            'medium': 1,
+            'high': 2,
+            'critical': 3
+        }
         self.model_config = { # Añadir config para modelos DL
             'lstm': {'units': [100, 50], 'dropout': 0.2, 'recurrent_dropout': 0.2},
             'gru': {'units': [100, 50], 'dropout': 0.2, 'recurrent_dropout': 0.2},
