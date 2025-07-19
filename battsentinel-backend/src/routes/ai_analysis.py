@@ -19,6 +19,7 @@ from functools import wraps
 
 from flask_cors import cross_origin
 
+from sklearn.preprocessing import StandardScaler 
 # Importaciones locales
 import sys
 import os
@@ -314,15 +315,13 @@ def analyze_battery(battery_id: int):
         # --- AÑADIR PASOS DE PREPROCESAMIENTO DE DATOS AQUÍ ---
         # 1. Convertir la columna 'timestamp' a tipo datetime
         if 'timestamp' in df.columns:
-            # Asegúrate de que el formato sea el correcto o que pandas pueda inferirlo.
-            # Convertir a UTC para consistencia.
             df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
             # Eliminar filas donde el timestamp no pudo ser convertido
             df.dropna(subset=['timestamp'], inplace=True)
             df = df.sort_values(by='timestamp').reset_index(drop=True) # Asegurar orden cronológico
 
         # 2. Manejar valores no numéricos, NaN o infinitos en columnas relevantes
-        # Excluir 'timestamp' y otras columnas no numéricas que no deben ser tratadas así
+        
         numeric_cols = [col for col in df.select_dtypes(include=np.number).columns if col not in ['battery_id', 'cycles']] # Ajusta si tienes más columnas no relevantes para este tratamiento
         
         if numeric_cols: # Asegúrate de que haya columnas numéricas para procesar
@@ -339,7 +338,28 @@ def analyze_battery(battery_id: int):
                         logger.warning(f"Columna '{col}' contenía solo NaN después de eliminar infinitos. Rellenada con 0.")
                     else:
                         df[col] = df[col].fillna(mean_val)
-                        
+
+        # NUEVA ADICIÓN: Escalado de características (Feature Scaling)
+        try:
+            scaler = StandardScaler()
+            # Asegúrate de que los datos sean numéricos y finitos antes de escalar
+            # Esto debería ser redundante si el `fillna` y `replace` anteriores funcionaron,
+            # pero es una buena práctica para la robustez.
+            df_to_scale = df[numeric_cols].copy()
+            df_to_scale = df_to_scale.replace([np.inf, -np.inf], np.nan).fillna(df_to_scale.mean())
+
+            df[numeric_cols] = scaler.fit_transform(df_to_scale)
+            logger.info(f"Columnas numéricas {numeric_cols} escaladas usando StandardScaler.")
+            # Opcional: imprimir estadísticas después del escalado para depuración
+            # logger.debug(f"Max values after scaling: \n{df[numeric_cols].max()}")
+            # logger.debug(f"Min values after scaling: \n{df[numeric_cols].min()}")
+            # logger.debug(f"Mean values after scaling: \n{df[numeric_cols].mean()}")
+            # logger.debug(f"Std values after scaling: \n{df[numeric_cols].std()}")
+
+        except Exception as e:
+            logger.error(f"Error durante el escalado de características: {str(e)}", exc_info=True)
+            # Continúa sin escalar si hay un error, pero registra el problema
+            pass
         # Obtener los modelos de IA inicializados
         models = get_or_create_models()
 
@@ -571,7 +591,7 @@ def generate_system_summary(results: Dict[str, AIAnalysisResult], level: int) ->
     if 'continuous_monitoring' in results:
         cm_result = results['continuous_monitoring']
         cm_status = getattr(cm_result, 'status', 'error')
-        if cm_result.status == 'error':
+        if cm_status == 'error':
             summary['priority_alerts'].append({
                 'type': 'continuous_monitoring', 'severity': 'error', 'message': f"Error en monitoreo continuo: {getattr(cm_result, 'error', 'Error desconocido')}"
             })
@@ -590,7 +610,7 @@ def generate_system_summary(results: Dict[str, AIAnalysisResult], level: int) ->
     if 'fault_detection' in results:
         fd_result = results['fault_detection']
         fd_status = getattr(fd_result, 'status', 'error')
-        if fd_result.status == 'error':
+        if fd_status == 'error':
             summary['priority_alerts'].append({
                 'type': 'fault_detection', 'severity': 'error', 'message': f"Error en detección de fallas: {getattr(fd_result, 'error', 'Error desconocido')}"
             })
@@ -610,7 +630,7 @@ def generate_system_summary(results: Dict[str, AIAnalysisResult], level: int) ->
     if 'health_prediction' in results:
         hp_result = results['health_prediction']
         hp_status = getattr(hp_result, 'status', 'error')
-        if hp_result.status == 'error':
+        if hp_status == 'error':
             summary['priority_alerts'].append({
                 'type': 'health_prediction', 'severity': 'error', 'message': f"Error en predicción de salud: {getattr(hp_result, 'error', 'Error desconocido')}"
             })
