@@ -162,9 +162,16 @@ class DataPreprocessor:
     def prepare_features(self, df: pd.DataFrame, battery_metadata: Optional[BatteryMetadata] = None) -> pd.DataFrame:
         """Preparar características avanzadas con ingeniería de características"""
         if df is None or df.empty:
-            raise ValueError("DataFrame de entrada está vacío o es None")
+            logger.warning("DataFrame de entrada está vacío o es None en prepare_features.")
+            return pd.DataFrame() 
 
         df_processed = df.copy()
+
+        for col in df_processed.columns:
+            if pd.api.types.is_numeric_dtype(df_processed[col]) or pd.api.types.is_string_dtype(df_processed[col]):
+                df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')
+        df_processed.replace([np.inf, -np.inf], np.nan, inplace=True)
+        df_processed.fillna(0, inplace=True)
 
         if 'timestamp' in df_processed.columns:
             df_processed['timestamp'] = pd.to_datetime(df_processed['timestamp'])
@@ -258,7 +265,11 @@ class DataPreprocessor:
             if feature in df_enhanced.columns:
                 df_enhanced[f'{feature}_diff'] = df_enhanced[feature].diff().fillna(0)
                 df_enhanced[f'{feature}_diff2'] = df_enhanced[f'{feature}_diff'].diff().fillna(0)
-                df_enhanced[f'{feature}_pct_change'] = df_enhanced[feature].pct_change().fillna(0)
+                df_enhanced[f'{feature}_pct_change'] = df_enhanced[feature].pct_change().fillna(0)                
+                
+                df_enhanced[f'{feature}_pct_change'].replace([np.inf, -np.inf], np.nan, inplace=True)
+                df_enhanced[f'{feature}_pct_change'].fillna(0, inplace=True)
+        
         if 'voltage' in df_enhanced.columns and 'current' in df_enhanced.columns:
             df_enhanced['power_calculated'] = df_enhanced['voltage'] * df_enhanced['current']
             df_enhanced['resistance_estimated'] = np.where(
@@ -284,19 +295,52 @@ class DataPreprocessor:
         df_meta = df.copy()
         if 'voltage' in df_meta.columns:
             v_min, v_max = metadata.voltage_limits
-            df_meta['voltage_normalized'] = (df_meta['voltage'] - v_min) / (v_max - v_min)
+
+            if (v_max - v_min) == 0:
+                logger.warning("Rango de voltaje de metadatos es cero, voltage_normalized será 0.")
+                df_meta['voltage_normalized'] = 0.0 
+            else:
+                df_meta['voltage_normalized'] = (df_meta['voltage'] - v_min) / (v_max - v_min)
+                            
             df_meta['voltage_margin_min'] = df_meta['voltage'] - v_min
             df_meta['voltage_margin_max'] = v_max - df_meta['voltage']
+            
         if 'current' in df_meta.columns:
-            df_meta['current_charge_ratio'] = df_meta['current'] / metadata.charge_current_limit
-            df_meta['current_discharge_ratio'] = np.abs(df_meta['current']) / metadata.discharge_current_limit
+            # --- INICIO NUEVA MEJORA: Manejo de división por cero en ratios de corriente ---
+            if metadata.charge_current_limit == 0:
+                logger.warning("Límite de corriente de carga es cero, current_charge_ratio será 0.")
+                df_meta['current_charge_ratio'] = 0.0
+            else:
+                df_meta['current_charge_ratio'] = df_meta['current'] / metadata.charge_current_limit
+            
+            if metadata.discharge_current_limit == 0:
+                logger.warning("Límite de corriente de descarga es cero, current_discharge_ratio será 0.")
+                df_meta['current_discharge_ratio'] = 0.0
+            else:
+                df_meta['current_discharge_ratio'] = np.abs(df_meta['current']) / metadata.discharge_current_limit
+            # --- FIN NUEVA MEJORA ---
+            
         if 'temperature' in df_meta.columns:
             t_min, t_max = metadata.operating_temp_range
-            df_meta['temp_normalized'] = (df_meta['temperature'] - t_min) / (t_max - t_min)
+            # --- INICIO NUEVA MEJORA: Manejo de división por cero en normalización de temperatura ---
+            if (t_max - t_min) == 0:
+                logger.warning("Rango de temperatura de metadatos es cero, temp_normalized será 0.")
+                df_meta['temp_normalized'] = 0.0
+            else:
+                df_meta['temp_normalized'] = (df_meta['temperature'] - t_min) / (t_max - t_min)
+            # --- FIN NUEVA MEJORA ---
             df_meta['temp_margin_min'] = df_meta['temperature'] - t_min
             df_meta['temp_margin_max'] = t_max - df_meta['temperature']
+        
         if 'cycles' in df_meta.columns:
-            df_meta['cycle_life_ratio'] = df_meta['cycles'] / metadata.design_cycles
+            # --- INICIO NUEVA MEJORA: Manejo de división por cero en ratio de ciclos ---
+            if metadata.design_cycles == 0:
+                logger.warning("Ciclos de diseño de metadatos es cero, cycle_life_ratio será 0.")
+                df_meta['cycle_life_ratio'] = 0.0
+            else:
+                df_meta['cycle_life_ratio'] = df_meta['cycles'] / metadata.design_cycles
+            # --- FIN NUEVA MEJORA ---
+
         chemistry_encoding = {
             'LiFePO4': [1, 0, 0], 'NMC': [0, 1, 0], 'LTO': [0, 0, 1]
         }
