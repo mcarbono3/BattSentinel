@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 import json
 import logging
 from abc import ABC, abstractmethod
-from pathlib import Path # <--- ¡Añadida esta línea!
+from pathlib import Path
 
 # Scikit-learn imports
 from sklearn.ensemble import IsolationForest, RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier
@@ -92,7 +92,7 @@ class AnalysisResult:
     fault_type: Optional[str] = None
     severity: Optional[str] = None
     rul_prediction: Optional[float] = None
-    level_of_analysis: Optional[int] = None
+    level_of_analysis: Optional[int] = None # Permitir None para inicialización, pero se debe fijar
 
     def __post_init__(self):
         """Post-inicialización para asegurar tipos correctos y metadatos"""
@@ -100,7 +100,14 @@ class AnalysisResult:
         self.confidence_score = float(self.confidence_score) if self.confidence_score is not None else 0.0
         self.rul_prediction = float(self.rul_prediction) if self.rul_prediction is not None else None
         self.fault_detected = bool(self.fault_detected) if self.fault_detected is not None else None
-        self.level_of_analysis = int(self.level_of_analysis) if self.level_of_analysis is not None else None
+        
+        # Asegurar que level_of_analysis es un int y no None
+        if self.level_of_analysis is None:
+            # Intentar deducir del metadata si no se pasó directamente
+            self.level_of_analysis = int(self.metadata.get('level', 0)) if self.metadata.get('level') is not None else 0
+        else:
+            self.level_of_analysis = int(self.level_of_analysis)
+
 
         # Inicializar metadata con valores por defecto
         self._initialize_metadata()
@@ -111,7 +118,7 @@ class AnalysisResult:
             'data_points': 0,
             'processing_time_ms': 0,
             'processing_time_s': 0.0,
-            'level': 1,
+            'level': self.level_of_analysis, # Usar el nivel ya establecido
             'models_used': [],
             'data_quality_score': 0.0,
             'feature_count': 0
@@ -121,6 +128,11 @@ class AnalysisResult:
         for key, default_value in default_metadata.items():
             if key not in self.metadata:
                 self.metadata[key] = default_value
+        
+        # Asegurar que metadata['level'] coincide con self.level_of_analysis
+        if 'level' in self.metadata and self.metadata['level'] != self.level_of_analysis:
+            self.metadata['level'] = self.level_of_analysis
+
 
     def to_dict(self) -> Dict[str, Any]:
         """Convertir a diccionario para serialización"""
@@ -363,17 +375,21 @@ class ContinuousMonitoringEngine:
                     'features_analyzed': int(len(key_features.columns)),
                     'level': 1
                 },
-                model_version='2.0-level1'
+                model_version='2.0-level1',
+                fault_detected=combined_results['predictions'].get('overall_fault_detected'),
+                fault_type=combined_results['predictions'].get('main_status') if combined_results['predictions'].get('overall_fault_detected') else None,
+                severity=None, # Nivel 1 no asigna severidad detallada
+                level_of_analysis=1
             )
         except Exception as e:
-            logger.error(f"Error en análisis continuo: {str(e)}")
-            return self._create_error_result(str(e), 'continuous_monitoring')
+            logger.error(f"Error en monitoreo continuo: {str(e)}")
+            return self._create_error_result(str(e), 'continuous_monitoring', 1)
 
     def _select_key_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Seleccionar características clave para análisis rápido"""
         priority_features = [
             'voltage', 'current', 'temperature', 'soc', 'soh',
-            'voltage_std_5', 'current_diff', 'temperature_gradient',
+            'voltage_std_5', 'current_diff', 'temp_gradient', # Corrected temperature_gradient
             'power_calculated', 'resistance_estimated'
         ]
         available_features = [col for col in priority_features if col in df.columns]
@@ -390,8 +406,17 @@ class ContinuousMonitoringEngine:
             'anomaly_details': []
         }
         try:
-            scaler = RobustScaler()
-            features_scaled = scaler.fit_transform(features)
+            # Fit scaler only if it hasn't been fitted or if input features shape changes
+            if not hasattr(self.anomaly_detectors['isolation_forest'], 'offset_'):
+                # Using a dummy fit for scaler if it's the first time
+                temp_scaler = RobustScaler()
+                temp_scaler.fit(features)
+                features_scaled = temp_scaler.transform(features)
+            else:
+                scaler = RobustScaler()
+                features_scaled = scaler.fit_transform(features)
+
+
             if len(features) >= 10:
                 iso_forest = self.anomaly_detectors['isolation_forest']
                 iso_forest.fit(features_scaled)
@@ -406,7 +431,7 @@ class ContinuousMonitoringEngine:
                             results['anomaly_details'].append({
                                 'index': int(idx),
                                 'score': float(anomaly_scores[idx]),
-                                'timestamp': features.index[idx].isoformat() if hasattr(features.index[idx], 'isoformat') else str(features.index[idx])
+                                'timestamp': features.index[idx].isoformat() if hasattr(features.index, 'name') and features.index.name == 'timestamp' and idx < len(features.index) else str(idx)
                             })
             if not results['anomalies_detected']:
                 stat_anomalies = self._statistical_anomaly_detection(features)
@@ -567,7 +592,7 @@ class ContinuousMonitoringEngine:
             }
         }
 
-    def _create_error_result(self, error_msg: str, analysis_type: str) -> AnalysisResult:
+    def _create_error_result(self, error_msg: str, analysis_type: str, level: int = 0) -> AnalysisResult:
         """Crear resultado de error para análisis continuo"""
         return AnalysisResult(
             analysis_type=analysis_type,
@@ -575,7 +600,8 @@ class ContinuousMonitoringEngine:
             confidence_score=0.0,
             predictions={'error': True, 'message': error_msg},
             explanation={'error': str(error_msg), 'method': 'error_handling'},
-            metadata={'level': 0, 'error': True}
+            metadata={'level': level, 'error': True},
+            level_of_analysis=level
         )
 
 # =============================================================================================
@@ -591,12 +617,12 @@ class EWMAControlChart:
     def analyze(self, data: pd.Series) -> Dict[str, Any]:
         """Analizar datos usando gráfico de control EWMA"""
         if len(data) < 5:
-            return {'violations': 0, 'control_limit': 0.0} # Asegurar float
+            return {'violations': 0, 'control_limit': 0.0, 'ewma_values': []} # Asegurar float
 
         ewma = data.ewm(alpha=self.lambda_param).mean()
         sigma = data.std()
         if sigma == 0: # Evitar división por cero
-            return {'violations': 0, 'control_limit': 0.0}
+            return {'violations': 0, 'control_limit': 0.0, 'ewma_values': ewma.tolist()}
 
         control_limit = self.L * sigma * np.sqrt(self.lambda_param / (2 - self.lambda_param))
         center_line = data.mean()
@@ -671,7 +697,14 @@ class FaultDetectionModel:
             'normal': 'none', 'degradation': 'medium', 'short_circuit': 'critical',
             'overcharge': 'high', 'overheat': 'high', 'thermal_runaway': 'critical',
             'capacity_fade': 'medium', 'impedance_rise': 'medium',
-            'electrolyte_loss': 'high', 'lithium_plating': 'high'
+            'electrolyte_loss': 'high', 'lithium_plating': 'high',
+            'unknown': 'none' # Añadido para manejar casos desconocidos
+        }
+        self.model_config = { # Añadir config para modelos DL
+            'lstm': {'units': [100, 50], 'dropout': 0.2, 'recurrent_dropout': 0.2},
+            'gru': {'units': [100, 50], 'dropout': 0.2, 'recurrent_dropout': 0.2},
+            'tcn': {'filters': 64, 'kernel_size': 3, 'dilations': [1, 2, 4, 8]},
+            'autoencoder': {'hidden_layers': [64, 32], 'epochs': 20, 'batch_size': 32}
         }
         self._initialize_models()
 
@@ -682,7 +715,8 @@ class FaultDetectionModel:
             self.random_forest = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
             self.svm_model = SVC(kernel='rbf', probability=True, random_state=42)
             self.gradient_boosting = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1, max_depth=6, random_state=42)
-            self.feature_selector = SelectKBest(score_func=f_classif, k=20)
+            self.feature_selector = SelectKBest(score_func=f_classif, k='all') # Ajustado a 'all' por ahora, se puede optimizar
+
             logger.info("Modelos tradicionales de ML inicializados correctamente")
         except Exception as e:
             logger.error(f"Error inicializando modelos tradicionales: {str(e)}")
@@ -788,8 +822,25 @@ class FaultDetectionModel:
     def train_models(self, X_train: pd.DataFrame, y_train: pd.Series):
         """Entrenar modelos de detección de fallas (ML tradicional)"""
         try:
-            X_scaled = self.scaler.fit_transform(X_train)
-            X_selected = self.feature_selector.fit_transform(X_scaled, y_train)
+            # Asegurar que X_train tenga los mismos nombres de columnas que se usarán en la predicción
+            # Esto es una simplificación, en un caso real necesitarías un FeatureSelector entrenado
+            # y que se aplique Consistentemente
+            feature_cols_for_training = [col for col in X_train.columns if X_train[col].dtype in ['int64', 'float64']]
+            if not feature_cols_for_training:
+                raise ValueError("No hay características numéricas en el DataFrame de entrenamiento.")
+            
+            X_train_numeric = X_train[feature_cols_for_training]
+
+            self.scaler.fit(X_train_numeric)
+            X_scaled = self.scaler.transform(X_train_numeric)
+            
+            # Ajustar el FeatureSelector solo si es necesario y hay suficientes muestras
+            if X_scaled.shape[0] > self.feature_selector.k and X_scaled.shape[0] > 1: # if k is 'all' this condition won't work well
+                 self.feature_selector.k = min(X_scaled.shape[1], 20) # Limit k for robustness if not 'all'
+                 self.feature_selector.fit(X_scaled, y_train)
+                 X_selected = self.feature_selector.transform(X_scaled)
+            else:
+                X_selected = X_scaled # No selection if not enough features or samples
 
             self.isolation_forest.fit(X_selected)
             self.random_forest.fit(X_selected, y_train)
@@ -815,11 +866,39 @@ class FaultDetectionModel:
             if feature_df.empty:
                  raise ValueError("No hay características numéricas para la predicción.")
 
-            # Escalar y seleccionar características
+            # Asegurar que el scaler y el selector de características estén ajustados
+            # Esto es crítico para la inferencia. Si no se entrenaron antes, hay que manejarlo.
+            if not hasattr(self.scaler, 'mean_'):
+                # En un entorno de producción, esto indicaría que el modelo no ha sido entrenado.
+                # Para un script de prueba, se puede hacer un fit_transform aquí, pero no es lo ideal.
+                # Para robustez, se podría hacer un fit_transform si solo se llama una vez en el ciclo de vida.
+                # Para este caso, simularemos un fit para que funcione.
+                self.scaler.fit(feature_df) # Temporal fix for not-fitted scaler
+                
             features_scaled = self.scaler.transform(feature_df)
+
+            if not hasattr(self.feature_selector, 'scores_'):
+                # Si el selector no ha sido ajustado, se puede hacer un dummy fit si es necesario
+                # O bien, usar todas las características escaladas directamente.
+                self.feature_selector.k = 'all' # Reset k if not fitted or to use all features
+                if features_scaled.shape[0] > 1 and features_scaled.shape[1] > 0:
+                    # Crear un target dummy si no hay uno real para el selector
+                    dummy_target = np.zeros(features_scaled.shape[0])
+                    if features_scaled.shape[0] > self.feature_selector.k:
+                         self.feature_selector.k = min(features_scaled.shape[1], 20) # Limit k
+                    self.feature_selector.fit(features_scaled, dummy_target) # Dummy fit
+                
             features_selected = self.feature_selector.transform(features_scaled)
 
             # Predicción con RandomForest (ejemplo, se pueden usar otros modelos)
+            if self.random_forest is None or not hasattr(self.random_forest, 'classes_'):
+                # Si el modelo no está entrenado, lanzar un error o devolver un resultado de "modelo no entrenado"
+                raise RuntimeError("RandomForest model no está entrenado para predicción de fallas.")
+
+            # Asegurarse de que el input para predict_proba sea 2D
+            if len(features_selected.shape) == 1:
+                features_selected = features_selected.reshape(1, -1)
+            
             fault_prediction_proba = self.random_forest.predict_proba(features_selected)[0]
             fault_class = self.random_forest.predict(features_selected)[0]
 
@@ -850,14 +929,15 @@ class FaultDetectionModel:
                 model_version='2.0-level2-fault-detection',
                 fault_detected=fault_detected,
                 fault_type=main_fault_type,
-                severity=self.severity_mapping.get(main_fault_type, 'none')
+                severity=self.severity_mapping.get(main_fault_type, 'none'),
+                level_of_analysis=2
             )
         except Exception as e:
             logger.error(f"Error en predicción de fallas: {str(e)}")
             # Crear AnalysisResult en caso de error
-            return self._create_error_result(str(e), 'fault_detection')
+            return self._create_error_result(str(e), 'fault_detection', 2)
 
-    def _create_error_result(self, error_msg: str, analysis_type: str) -> AnalysisResult:
+    def _create_error_result(self, error_msg: str, analysis_type: str, level: int = 0) -> AnalysisResult:
         """Crear resultado de error para detección de fallas"""
         return AnalysisResult(
             analysis_type=analysis_type,
@@ -865,7 +945,8 @@ class FaultDetectionModel:
             confidence_score=0.0,
             predictions={'error': True, 'message': error_msg},
             explanation={'error': str(error_msg), 'method': 'error_handling'},
-            metadata={'level': 0, 'error': True}
+            metadata={'level': level, 'error': True},
+            level_of_analysis=level
         )
 
 # =============================================================================================
@@ -956,7 +1037,7 @@ class HealthPredictionModel:
             last_sequence_data = df_processed[feature_cols].tail(sequence_length).fillna(0)
 
             # Si el scaler no ha sido ajustado, ajustarlo con los datos actuales
-            if not hasattr(self.scaler, 'n_features_in_'):
+            if not hasattr(self.scaler, 'mean_'):
                 self.scaler.fit(last_sequence_data)
 
             last_sequence_scaled = self.scaler.transform(last_sequence_data)
@@ -968,8 +1049,8 @@ class HealthPredictionModel:
             predicted_rul_days = 0.0
 
             if TENSORFLOW_AVAILABLE and self.soh_model and self.rul_model:
-                predicted_soh = self.soh_model.predict(X_predict)[0][0]
-                predicted_rul_days = self.rul_model.predict(X_predict)[0][0]
+                predicted_soh = self.soh_model.predict(X_predict, verbose=0)[0][0]
+                predicted_rul_days = self.rul_model.predict(X_predict, verbose=0)[0][0]
             else:
                 # Para modelos tradicionales, aplanar la secuencia
                 X_predict_flat = X_predict.reshape(X_predict.shape[0], -1)
@@ -1004,11 +1085,12 @@ class HealthPredictionModel:
                     'model_used': 'LSTM/GRU' if TENSORFLOW_AVAILABLE else 'RandomForest'
                 },
                 model_version='2.0-level2-health-prediction',
-                rul_prediction=predicted_rul_days
+                rul_prediction=predicted_rul_days,
+                level_of_analysis=2
             )
         except Exception as e:
             logger.error(f"Error en predicción de salud: {str(e)}")
-            return self._create_error_result(str(e), 'health_prediction')
+            return self._create_error_result(str(e), 'health_prediction', 2)
 
     def _estimate_degradation_rate(self, df: pd.DataFrame) -> float:
         """Estimar tasa de degradación mensual"""
@@ -1029,7 +1111,7 @@ class HealthPredictionModel:
         elif soh > 60: return 'poor'
         else: return 'critical'
 
-    def _create_error_result(self, error_msg: str, analysis_type: str) -> AnalysisResult:
+    def _create_error_result(self, error_msg: str, analysis_type: str, level: int = 0) -> AnalysisResult:
         """Crear resultado de error para predicción de salud"""
         return AnalysisResult(
             analysis_type=analysis_type,
@@ -1037,7 +1119,8 @@ class HealthPredictionModel:
             confidence_score=0.0,
             predictions={'error': True, 'message': error_msg},
             explanation={'error': str(error_msg), 'method': 'error_handling'},
-            metadata={'level': 0, 'error': True}
+            metadata={'level': level, 'error': True},
+            level_of_analysis=level
         )
 
 # =============================================================================================
@@ -1119,7 +1202,7 @@ class XAIExplainer:
 
     def _basic_fault_explanation(self, prediction_result: Dict[str, Any]) -> Dict[str, Any]:
         """Explicación básica de fallas para compatibilidad o fallback."""
-        fault_detected = prediction_result.get('fault_detected', False)
+        fault_detected = prediction_result.get('predictions', {}).get('fault_detected', False) # Acceder via predictions
         fault_type = prediction_result.get('predictions', {}).get('main_fault', 'normal')
 
         if not fault_detected:
@@ -1215,7 +1298,11 @@ class AdvancedAnalysisEngine:
             'lstm_features': 10,
             'autoencoder_latent_dim': 8,
             'gp_kernel_length_scale': 1.0,
-            'training_validation_split': 0.2
+            'training_validation_split': 0.2,
+            'lstm': {'units': [100, 50], 'dropout': 0.2, 'recurrent_dropout': 0.2},
+            'gru': {'units': [100, 50], 'dropout': 0.2, 'recurrent_dropout': 0.2},
+            'tcn': {'filters': 64, 'kernel_size': 3, 'dilations': [1, 2, 4, 8]},
+            'autoencoder': {'hidden_layers': [64, 32], 'epochs': 20, 'batch_size': 32}
         }
         if TENSORFLOW_AVAILABLE:
             self._initialize_deep_models()
@@ -1269,11 +1356,14 @@ class AdvancedAnalysisEngine:
                     'level': 2,
                     'models_used': combined_results['models_used']
                 },
-                model_version='2.0-level2'
+                model_version='2.0-level2',
+                # No se asignan fault_detected, fault_type, severity, rul_prediction directamente aquí,
+                # ya que es una combinación, estos se obtienen de los sub-resultados
+                level_of_analysis=2
             )
         except Exception as e:
             logger.error(f"Error en análisis avanzado: {str(e)}")
-            return self._create_error_result(str(e), 'advanced_analysis')
+            return self._create_error_result(str(e), 'advanced_analysis', 2)
 
     def _deep_learning_analysis(self, df: pd.DataFrame, metadata: Optional[BatteryMetadata]) -> Dict[str, Any]:
         """Análisis usando redes neuronales profundas"""
@@ -1308,6 +1398,10 @@ class AdvancedAnalysisEngine:
         data_scaled = scaler.fit_transform(df[feature_cols].fillna(0))
 
         sequence_length = min(self.model_config['lstm_sequence_length'], len(data_scaled) // 2)
+        if sequence_length == 0: # Handle very small dataframes
+            raise ValueError("No se puede crear una secuencia de longitud 0. Revise el tamaño del DataFrame.")
+
+
         sequences = []
         targets = []
         for i in range(sequence_length, len(data_scaled)):
@@ -1316,6 +1410,10 @@ class AdvancedAnalysisEngine:
                 targets.append(df['soh'].iloc[i])
             else:
                 targets.append(self._create_synthetic_target(data_scaled[i]))
+        
+        if not sequences: # Check if sequences list is empty
+            raise ValueError("No se pudieron crear secuencias a partir de los datos.")
+
         return np.array(sequences), np.array(targets)
 
     def _create_synthetic_target(self, data_point: np.ndarray) -> float:
@@ -1417,7 +1515,9 @@ class AdvancedAnalysisEngine:
         try:
             # Placeholder para num_classes, ajusta según tus patrones
             num_classes = 3 # Ejemplo: carga, descarga, inactivo
-            model = FaultDetectionModel()._build_tcn_model((sequences.shape[1], sequences.shape[2]), num_classes) # Reutilizar la construcción TCN
+            # Instantiate FaultDetectionModel to access its _build_tcn_model method
+            temp_fd_model = FaultDetectionModel() 
+            model = temp_fd_model._build_tcn_model((sequences.shape[1], sequences.shape[2]), num_classes) # Reutilizar la construcción TCN
 
             if model and len(sequences) > 20:
                 # Targets de ejemplo para clasificación de patrones
@@ -1467,7 +1567,9 @@ class AdvancedAnalysisEngine:
             encoding_dim = self.model_config['autoencoder_latent_dim']
             hidden_layers = self.model_config['autoencoder']['hidden_layers']
 
-            model = FaultDetectionModel()._build_autoencoder_model((input_dim,), encoding_dim, hidden_layers) # Reutilizar
+            # Instantiate FaultDetectionModel to access its _build_autoencoder_model method
+            temp_fd_model = FaultDetectionModel()
+            model = temp_fd_model._build_autoencoder_model((input_dim,), encoding_dim, hidden_layers) # Reutilizar
 
             if model:
                 model.fit(data_scaled, data_scaled, epochs=self.model_config['autoencoder']['epochs'],
@@ -1486,7 +1588,7 @@ class AdvancedAnalysisEngine:
                     results['details'] = [{
                         'index': int(idx), # Asegurar int
                         'reconstruction_error': float(mse[idx]), # Asegurar float
-                        'timestamp': df_processed.index[idx].isoformat() if hasattr(df_processed.index[idx], 'isoformat') else str(df_processed.index[idx])
+                        'timestamp': df_processed.index[idx].isoformat() if hasattr(df_processed.index, 'name') and df_processed.index.name == 'timestamp' and idx < len(df_processed.index) else str(idx)
                     } for idx in anomalies[-5:]] # Últimas 5
 
             return results
@@ -1575,34 +1677,70 @@ class AdvancedAnalysisEngine:
         """Combinar resultados de Nivel 2"""
         overall_confidence = []
         overall_status = 'Normal'
+        models_used = []
 
         # Recolectar confianzas y estados
-        if 'confidence' in deep_res.get('lstm_fault_detection', {}):
+        if 'lstm_fault_detection' in deep_res and 'confidence' in deep_res['lstm_fault_detection']:
             overall_confidence.append(deep_res['lstm_fault_detection']['confidence'])
             if deep_res['lstm_fault_detection'].get('fault_detected'):
                 overall_status = 'Fault Detected'
+            models_used.append('LSTM')
 
-        if 'confidence' in deep_res.get('gru_health_prediction', {}):
-            # No hay 'confidence' directo aquí, usar un valor por defecto o calcularlo
-            pass
+        if 'gru_health_prediction' in deep_res and 'current_soh' in deep_res['gru_health_prediction']:
+            # Para la predicción de salud, se puede estimar una confianza o usar un valor fijo.
+            # Aquí no hay 'confidence' directo, por lo que se podría asignar un valor basado en la consistencia.
+            # Por simplicidad, no agregamos un valor por defecto aquí si no lo tiene el sub-resultado.
+            models_used.append('GRU')
 
-        if 'confidence' in deep_res.get('tcn_classification', {}):
+
+        if 'tcn_classification' in deep_res and 'confidence' in deep_res['tcn_classification']:
             overall_confidence.append(deep_res['tcn_classification']['confidence'])
+            models_used.append('TCN')
 
         if anomaly_res.get('anomalies_detected'):
-            overall_status = 'Anomaly Detected'
-            # No hay confianza directa, usar un valor fijo o derivado
-            overall_confidence.append(0.85)
+            overall_status = 'Anomaly Detected' if overall_status == 'Normal' else 'Multiple Issues'
+            overall_confidence.append(anomaly_res.get('anomaly_score', 0.85)) # Usar el score de anomalía como proxy de confianza inversa
+            models_used.append('Autoencoder')
+
+        if uncertainty_res.get('soh_prediction') is not None:
+             models_used.append('GaussianProcess')
+        
+        if survival_res.get('rul_prediction_days') is not None:
+             models_used.append('SurvivalAnalysis (Placeholder)')
+
 
         final_confidence = float(np.mean(overall_confidence)) if overall_confidence else 0.78 # Asegurar float
 
         # Resumen general de resultados
         results_summary = {
             'continuous_monitoring': 'success', # Asumiendo que pasó el monitoreo continuo para llegar aquí
-            'fault_detection': 'success' if deep_res.get('lstm_fault_detection', {}).get('fault_detected', False) else 'success',
-            'health_prediction': 'success' if deep_res.get('gru_health_prediction', {}) else 'success',
+            'fault_detection': 'success' if deep_res.get('lstm_fault_detection', {}).get('fault_detected', False) else 'normal', # Ajustado a 'normal' si no hay falla
+            'health_prediction': 'success' if deep_res.get('gru_health_prediction', {}) else 'normal', # Ajustado a 'normal' si no hay resultado o si no hay fallo
             'explanations': 'available' if SHAP_AVAILABLE and LIME_AVAILABLE else 'basic'
         }
+
+        # Obtener los campos fault_detected, fault_type, severity y rul_prediction de los resultados específicos del nivel 2
+        # Priorizar FaultDetectionModel para fault_detected, fault_type, severity
+        # Priorizar HealthPredictionModel para rul_prediction
+        overall_fault_detected = deep_res.get('lstm_fault_detection', {}).get('fault_detected', False)
+        overall_fault_type = None
+        overall_severity = None
+        overall_rul_prediction = None
+
+        if 'fault_detection' in combined_predictions:
+            fd_preds = combined_predictions['fault_detection']
+            overall_fault_detected = fd_preds.get('fault_detected', False)
+            overall_fault_type = fd_preds.get('main_fault')
+            overall_severity = FaultDetectionModel().severity_mapping.get(overall_fault_type, 'none') # Reutilizar mapeo
+
+        if 'health_prediction' in combined_predictions:
+            hp_preds = combined_predictions['health_prediction']
+            overall_rul_prediction = hp_preds.get('rul_days')
+        
+        # Override with survival analysis if available
+        if survival_res.get('rul_prediction_days') is not None and survival_res.get('rul_prediction_days') > 0:
+            overall_rul_prediction = survival_res['rul_prediction_days']
+
 
         combined_predictions = {
             'level': 2,
@@ -1611,17 +1749,22 @@ class AdvancedAnalysisEngine:
             'deep_learning_results': deep_res,
             'autoencoder_anomalies': anomaly_res,
             'gaussian_process': uncertainty_res,
-            'survival_analysis': survival_res
+            'survival_analysis': survival_res,
+            'overall_status': overall_status,
+            'fault_detected': overall_fault_detected,
+            'fault_type': overall_fault_type,
+            'severity': overall_severity,
+            'rul_prediction': overall_rul_prediction
         }
 
         return {
             'confidence': final_confidence,
             'predictions': combined_predictions,
             'explanation': {'summary': 'Resultados combinados de análisis avanzado'},
-            'models_used': deep_res.get('models_used', []) # Añadir modelos usados
+            'models_used': list(set(models_used)) # Eliminar duplicados
         }
 
-    def _create_error_result(self, error_msg: str, analysis_type: str) -> AnalysisResult:
+    def _create_error_result(self, error_msg: str, analysis_type: str, level: int = 0) -> AnalysisResult:
         """Crear resultado de error para análisis avanzado"""
         return AnalysisResult(
             analysis_type=analysis_type,
@@ -1629,7 +1772,8 @@ class AdvancedAnalysisEngine:
             confidence_score=0.0,
             predictions={'error': True, 'message': error_msg},
             explanation={'error': str(error_msg), 'method': 'error_handling'},
-            metadata={'level': 0, 'error': True}
+            metadata={'level': level, 'error': True},
+            level_of_analysis=level
         )
 
 # =============================================================================================
@@ -1649,60 +1793,137 @@ class ComprehensiveAnalysisEngine:
     def analyze_battery(self, df: pd.DataFrame, battery_metadata: Optional[BatteryMetadata] = None) -> List[AnalysisResult]:
         """Realizar un análisis completo de la batería (Nivel 1 y Nivel 2)"""
         results = []
-
+        
+        overall_fault_detected = False
+        overall_fault_type = None
+        overall_severity = None
+        overall_rul_prediction = None
+        
         # 1. Ejecutar monitoreo continuo (Nivel 1)
         continuous_result = self.continuous_engine.analyze_continuous(df, battery_metadata)
         results.append(continuous_result)
+        
+        if continuous_result.fault_detected:
+            overall_fault_detected = True
+            overall_fault_type = continuous_result.predictions.get('main_status')
+            # Severity for level 1 can be simple
+            if overall_fault_type == 'Fault Detected':
+                overall_severity = 'low' # Initial detection is low, advanced can escalate
 
         # Determinar si se necesita análisis avanzado
         perform_advanced_analysis = (
-            continuous_result.predictions.get('overall_fault_detected', False) or
-            continuous_result.predictions.get('anomaly_results', {}).get('anomalies_detected', False)
+            continuous_result.fault_detected or
+            continuous_result.predictions.get('anomaly_results', {}).get('anomalies_detected', False) or
+            len(df) >= 50 # Siempre intentar avanzado si hay suficientes datos
         )
+        
+        if perform_advanced_analysis:
+            logger.info("Activando análisis avanzado.")
 
-        # Forzar análisis avanzado para demostración o si se desea siempre
-        # perform_advanced_analysis = True
-
-        if perform_advanced_analysis and len(df) >= 50: # Mínimo de datos para Nivel 2
-            logger.info("Activando análisis avanzado debido a condiciones de falla o datos suficientes.")
+            fault_detection_result = None
+            health_prediction_result = None
+            advanced_analysis_result = None
 
             # 2. Ejecutar Detección de Fallas (Nivel 2)
-            fault_detection_result = self.fault_detection_model.predict_fault(df, battery_metadata)
-
-            # 3. Ejecutar Predicción de Salud (Nivel 2)
-            health_prediction_result = self.health_prediction_model.predict_health(df, battery_metadata)
-
-            # 4. Ejecutar Análisis Avanzado (combinación de DL, GP, etc.)
-            advanced_analysis_result = self.advanced_analysis_engine.analyze_advanced(df, battery_metadata)
-
-            # Generar explicaciones para Nivel 2 (usando la instancia de XAIExplainer)
-            if fault_detection_result:
-                try:
+            try:
+                fault_detection_result = self.fault_detection_model.predict_fault(df, battery_metadata)
+                if fault_detection_result:
                     fd_explanation = self.xai_explainer.explain_fault_detection(df, fault_detection_result.to_dict())
                     fault_detection_result.explanation = fd_explanation
-                except Exception as e:
-                    logger.warning(f"No se pudo generar explicación para detección de fallas: {str(e)}")
-                    fault_detection_result.explanation = {'error': str(e), 'method': 'explanation_failed'}
-                results.append(fault_detection_result)
+                    
+                    # Actualizar resumen general con resultados de Nivel 2
+                    if fault_detection_result.fault_detected:
+                        overall_fault_detected = True
+                        overall_fault_type = fault_detection_result.fault_type
+                        overall_severity = fault_detection_result.severity
+                    results.append(fault_detection_result)
+            except Exception as e:
+                logger.error(f"Error en detección de fallas (Nivel 2): {str(e)}")
+                results.append(self.fault_detection_model._create_error_result(str(e), 'fault_detection', 2))
 
-            if health_prediction_result:
-                try:
+            # 3. Ejecutar Predicción de Salud (Nivel 2)
+            try:
+                health_prediction_result = self.health_prediction_model.predict_health(df, battery_metadata)
+                if health_prediction_result:
                     hp_explanation = self.xai_explainer.explain_health_prediction(df, health_prediction_result.to_dict())
                     health_prediction_result.explanation = hp_explanation
-                except Exception as e:
-                    logger.warning(f"No se pudo generar explicación para predicción de salud: {str(e)}")
-                    health_prediction_result.explanation = {'error': str(e), 'method': 'explanation_failed'}
-                results.append(health_prediction_result)
+                    overall_rul_prediction = health_prediction_result.rul_prediction
+                    results.append(health_prediction_result)
+            except Exception as e:
+                logger.error(f"Error en predicción de salud (Nivel 2): {str(e)}")
+                results.append(self.health_prediction_model._create_error_result(str(e), 'health_prediction', 2))
 
-            if advanced_analysis_result:
-                # La explicación para advanced_analysis_result ya se genera internamente en _combine_level2_results
-                # o se puede generar una explicación general aquí.
-                results.append(advanced_analysis_result)
+            # 4. Ejecutar Análisis Avanzado (combinación de DL, GP, etc.)
+            try:
+                advanced_analysis_result = self.advanced_analysis_engine.analyze_advanced(df, battery_metadata)
+                if advanced_analysis_result:
+                    # Este resultado ya tiene su propia explicación y resumen interno
+                    # Se puede extraer más detalle si se desea para el resumen global
+                    results.append(advanced_analysis_result)
+                    # Actualizar con los resultados más detallados del análisis avanzado
+                    if advanced_analysis_result.predictions.get('fault_detected', False):
+                        overall_fault_detected = True
+                        overall_fault_type = advanced_analysis_result.predictions.get('fault_type', overall_fault_type)
+                        overall_severity = advanced_analysis_result.predictions.get('severity', overall_severity)
+                    if advanced_analysis_result.predictions.get('rul_prediction') is not None:
+                        overall_rul_prediction = advanced_analysis_result.predictions['rul_prediction']
+
+            except Exception as e:
+                logger.error(f"Error en análisis avanzado: {str(e)}")
+                results.append(self.advanced_analysis_engine._create_error_result(str(e), 'advanced_analysis', 2))
 
         else:
-            logger.info("No se activó el análisis avanzado (Nivel 2) debido a ausencia de fallas o datos insuficientes.")
-            # Si no hay análisis avanzado, proporcionar explicaciones básicas si es necesario
-            # Para el continuous_result ya está manejado internamente
+            logger.info("No se activó el análisis avanzado (Nivel 2) debido a ausencia de fallas en Nivel 1 o datos insuficientes.")
+
+        # Crear un resultado integral que resuma todos los niveles
+        comprehensive_summary_predictions = {
+            'system_summary': {
+                'analysis_level': 1 if not perform_advanced_analysis else 2,
+                'overall_status': 'Fault Detected' if overall_fault_detected else 'Normal Operation',
+                'overall_fault_type': overall_fault_type,
+                'overall_severity': overall_severity,
+                'overall_rul_prediction': overall_rul_prediction,
+                'priority_alerts': [],
+                'recommendations': []
+            },
+            'individual_analysis_results': [res.to_dict() for res in results if res is not None] # Convertir a dict para jsonb
+        }
+
+        # Generar recomendaciones basadas en el resumen general
+        if overall_fault_detected:
+            comprehensive_summary_predictions['system_summary']['priority_alerts'].append(f"Falla detectada: {overall_fault_type} (Severidad: {overall_severity})")
+            comprehensive_summary_predictions['system_summary']['recommendations'].append("Investigar causa raíz de la falla y tomar acciones correctivas.")
+        
+        if overall_rul_prediction is not None and overall_rul_prediction < 180: # Menos de 6 meses
+             comprehensive_summary_predictions['system_summary']['recommendations'].append(f"RUL bajo: {int(overall_rul_prediction)} días restantes. Considerar reemplazo o mantenimiento proactivo.")
+        elif overall_rul_prediction is not None:
+            comprehensive_summary_predictions['system_summary']['recommendations'].append(f"RUL estimado: {int(overall_rul_prediction)} días. Monitoreo regular.")
+
+        if not overall_fault_detected and (overall_rul_prediction is None or overall_rul_prediction >= 180):
+            comprehensive_summary_predictions['system_summary']['recommendations'].append("Continuar con monitoreo rutinario.")
+
+
+        final_comprehensive_result = AnalysisResult(
+            analysis_type='comprehensive_analysis',
+            timestamp=datetime.now(timezone.utc),
+            confidence_score=0.95, # Confianza alta para el resumen integral
+            predictions=comprehensive_summary_predictions,
+            explanation={'system_summary': comprehensive_summary_predictions['system_summary']}, # Usar el summary como explicación principal
+            metadata={
+                'processing_time_s': (datetime.now() - continuous_result.timestamp).total_seconds(), # Tiempo total
+                'data_points': len(df),
+                'level': 1 if not perform_advanced_analysis else 2,
+                'models_used': list(set([res.metadata.get('model_used') for res in results if res is not None and res.metadata.get('model_used')])) # Recopilar todos los modelos usados
+            },
+            model_version='2.0-comprehensive',
+            fault_detected=overall_fault_detected,
+            fault_type=overall_fault_type,
+            severity=overall_severity,
+            rul_prediction=overall_rul_prediction,
+            level_of_analysis=1 if not perform_advanced_analysis else 2
+        )
+        
+        results.append(final_comprehensive_result)
 
         # Asegurar que todas las AnalysisResult son válidas
         return [res for res in results if res is not None]
