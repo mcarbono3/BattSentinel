@@ -211,7 +211,8 @@ def validate_analysis_request(data: Dict) -> Dict[str, Any]:
         'time_window_hours': max(1, min(168, data.get('time_window_hours', 24))),  # Entre 1 hora y 1 semana
         'analysis_level': data.get('analysis_level', 1),  # 1 o 2
         'include_explanation': data.get('include_explanation', True),
-        'force_refresh': data.get('force_refresh', False)
+        'force_refresh': data.get('force_refresh', False),
+        'level2_data_window_days': data.get('level2_data_window_days', SYSTEM_CONFIG.get('level2_analysis_data_window_days', 7))
     }
 
     # Validar tipos de análisis
@@ -268,7 +269,7 @@ def analyze_battery(battery_id: int):
 
         # 2. Calcular la fecha de inicio de la ventana de datos para Nivel 2.
         # Usa el valor del frontend o el predeterminado de SYSTEM_CONFIG.
-        data_window_days = params['level2_data_window_days']
+        data_window_days = params.get('level2_data_window_days', SYSTEM_CONFIG['level2_analysis_data_window_days'])
         cutoff_time_for_level2 = latest_timestamp - timedelta(days=data_window_days)
 
         logger.info(f"Nivel {analysis_level}: Consultando datos históricos desde {cutoff_time_for_level2} hasta {latest_timestamp} (últimos {data_window_days} días).")
