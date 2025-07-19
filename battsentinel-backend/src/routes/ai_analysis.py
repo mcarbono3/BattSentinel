@@ -58,7 +58,7 @@ SYSTEM_CONFIG = {
     'max_processing_time_level1': 1.0,  # 1 segundo
     'max_processing_time_level2': 30.0,  # 30 segundos
     'min_data_points_level1': 5,
-    'min_data_points_level2': 20
+    'min_data_points_level2': 20,
     'level2_analysis_data_window_days': 7 # Valor por defecto para Nivel 2
 }
 
