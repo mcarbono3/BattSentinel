@@ -5,9 +5,6 @@ Sistema de Monitoreo de Baterías de Clase Industrial
 Implementa endpoints para sistema de doble nivel:
 - Nivel 1: Monitoreo Continuo (Ligero y Eficiente)
 - Nivel 2: Análisis Avanzado (Profundo y Preciso)
-
-Autor: Manus AI
-Fecha: 16 de Julio, 2025
 """
 
 from flask import Blueprint, request, jsonify
@@ -27,14 +24,16 @@ import sys
 import os
 
 # Importar modelos mejorados
-from src.models.battery import db, Battery, BatteryData, AnalysisResult
+from src.models.battery import db, Battery, BatteryData, AnalysisResult as DBAnalysisResult # Renombrar para evitar conflicto
+# Asumiendo que AnalysisResult en ai_models es el dataclass de src.models.schemas
 from src.services.ai_models import (
     FaultDetectionModel,
     HealthPredictionModel,
     XAIExplainer,
     ContinuousMonitoringEngine,
     BatteryMetadata,
-    DataPreprocessor
+    DataPreprocessor,
+    AnalysisResult as AIAnalysisResult # Renombrar el dataclass para claridad
 )
 
 # Configuración de logging
@@ -240,7 +239,7 @@ def analyze_battery(battery_id):
         request_data = request.get_json() or {}
         params = validate_analysis_request(request_data)
         # Asignacion manual para que ejecute el analisis profundo de IA
-        params['analysis_level'] = 2
+        params['analysis_level'] = 2 # ### CAMBIO: Forzar Nivel 2 para este endpoint
 
         # Extraer metadatos de la batería
         battery_metadata = extract_battery_metadata(battery)
@@ -254,8 +253,8 @@ def analyze_battery(battery_id):
 
         # Verificar cantidad mínima de datos
         min_data_required = (SYSTEM_CONFIG['min_data_points_level2']
-                           if params['analysis_level'] == 2
-                           else SYSTEM_CONFIG['min_data_points_level1'])
+                             if params['analysis_level'] == 2
+                             else SYSTEM_CONFIG['min_data_points_level1'])
 
         if len(recent_data) < min_data_required:
             logger.info(f"Datos insuficientes ({len(recent_data)}), generando datos de ejemplo")
@@ -282,9 +281,13 @@ def analyze_battery(battery_id):
         }
 
         # Ejecutar análisis según tipos solicitados
+        # El monitoreo continuo ahora también acepta el nivel y se ejecutará en Nivel 2 si analyze_battery es Nivel 2
         if 'continuous_monitoring' in params['analysis_types'] or params['analysis_level'] == 1:
             results['continuous_monitoring'] = execute_continuous_monitoring(
-                df, models['continuous_engine'], battery_metadata
+                battery_id, # ### CAMBIO: Añadir battery_id
+                df, models['continuous_engine'], battery_metadata,
+                params['analysis_level'], # ### CAMBIO: Pasar el nivel (será 2 aquí)
+                params['include_explanation'] # ### CAMBIO: Añadir include_explanation
             )
 
         if 'fault_detection' in params['analysis_types']:
@@ -299,7 +302,7 @@ def analyze_battery(battery_id):
 
         if 'anomaly_detection' in params['analysis_types']:
             results['anomaly_detection'] = execute_anomaly_detection(
-                df, models['continuous_engine'], battery_metadata
+                df, models['continuous_engine'], battery_metadata, params['analysis_level'] # ### CAMBIO: Pasar el nivel a detección de anomalías
             )
 
         # Agregar explicaciones si se solicitan
@@ -309,13 +312,16 @@ def analyze_battery(battery_id):
             )
 
         # Guardar resultados en base de datos
-        save_analysis_results(battery_id, results, params['analysis_level'])
+        # Convertir los objetos AIAnalysisResult a dicts antes de guardar
+        # Asumiendo que save_analysis_results espera una estructura similar a la que retorna jsonify
+        results_for_db = {k: v.to_dict() if hasattr(v, 'to_dict') else v for k, v in results.items()}
+        save_analysis_results(battery_id, results_for_db, params['analysis_level'])
 
         return jsonify({
             'success': True,
             'data': {
                 **analysis_metadata,
-                'results': results
+                'results': {k: v.to_dict() if hasattr(v, 'to_dict') else v for k, v in results.items()} # ### CAMBIO: Convertir a dict para jsonify
             }
         })
 
@@ -328,154 +334,102 @@ def analyze_battery(battery_id):
             'error_type': 'analysis_error'
         }), 500
 
-def execute_continuous_monitoring(df: pd.DataFrame, engine: ContinuousMonitoringEngine,
-                                metadata: Optional[BatteryMetadata]) -> Dict[str, Any]:
-    """Ejecutar monitoreo continuo (Nivel 1)"""
+# ### CAMBIO: Actualizar la firma de la función para aceptar todos los parámetros
+def execute_continuous_monitoring(battery_id: int, df: pd.DataFrame, engine: ContinuousMonitoringEngine,
+                                 metadata: Optional[BatteryMetadata], level: int, include_explanation: bool) -> AIAnalysisResult:
+    """Ejecutar monitoreo continuo (Nivel 1 o Nivel 2, según se le pase el nivel)"""
     try:
-        result = engine.analyze_continuous(df, metadata)
-        return {
-            'status': 'success',
-            'analysis_type': 'continuous_monitoring',
-            'timestamp': result.timestamp.isoformat(),
-            'confidence': result.confidence_score, # CORRECCIÓN: Usar confidence_score
-            'predictions': result.predictions,
-            'explanation': result.explanation,
-            'metadata': result.metadata
-        }
+        # ### CAMBIO: Pasar el nivel al motor de monitoreo continuo
+        result = engine.analyze_continuous(df, metadata, level=level)
+        return result # Retornar el objeto AIAnalysisResult directamente
     except Exception as e:
-        logger.error(f"Error en monitoreo continuo: {str(e)}")
-        return {
-            'status': 'error',
-            'error': str(e),
-            'analysis_type': 'continuous_monitoring'
-        }
+        logger.error(f"Error en monitoreo continuo (level {level}): {str(e)}")
+        return AIAnalysisResult( # ### CORRECCIÓN: Devolver AIAnalysisResult en caso de error
+            analysis_type='continuous_monitoring',
+            status='error',
+            error=str(e),
+            predictions={},
+            confidence=0.0,
+            explanation={'summary': f"Error en monitoreo continuo (level {level}): {str(e)}"},
+            metadata={'level': level}
+        )
 
+# ### CAMBIO: Actualizar el tipo de retorno a AIAnalysisResult
 def execute_fault_detection(df: pd.DataFrame, model: FaultDetectionModel,
-                          level: int, metadata: Optional[BatteryMetadata]) -> Dict[str, Any]:
+                           level: int, metadata: Optional[BatteryMetadata]) -> AIAnalysisResult:
     """Ejecutar detección de fallas"""
     try:
-        # CORRECCIÓN: Cambiar model.analyze a model.predict_fault
-        result = model.predict_fault(df, level=level)
-
-        # Guardar en base de datos si es exitoso
-        # Se asume que el `AnalysisResult` de `src.models.battery` es el que requiere `level_of_analysis`
-        # y que se hará un solo `db.session.commit()` al final del `analyze_battery` endpoint.
-        # Por lo tanto, aquí solo se añade al session, no se comitea.
-        analysis = AnalysisResult(
-            battery_id=df['battery_id'].iloc[0] if 'battery_id' in df.columns else 0,
-            analysis_type='fault_detection',
-            result=json.dumps(result.get('predictions', {})),
-            confidence=result.get('confidence_score', 0.0), # CORRECCIÓN: Usar confidence_score
-            fault_detected=result.get('fault_detected', False),
-            fault_type=result.get('fault_type'),
-            severity=result.get('severity'),
-            explanation=json.dumps(result.get('explanation', {})),
-            model_version=f'2.0-level{level}',
-            level_of_analysis=level # CORRECCIÓN: Añadir level_of_analysis
-        )
-        db.session.add(analysis)
-
-        return {
-            'status': 'success',
-            'analysis_type': 'fault_detection',
-            'level': level,
-            **result
-        }
+        result = model.predict_fault(df, level=level, battery_metadata=metadata) # Pasar battery_metadata
+        return result # Retornar el objeto AIAnalysisResult directamente
     except Exception as e:
-        logger.error(f"Error en detección de fallas: {str(e)}")
-        # NO hacer db.session.rollback() aquí, se maneja en el endpoint principal
-        return {
-            'status': 'error',
-            'error': str(e),
-            'analysis_type': 'fault_detection'
-        }
+        logger.error(f"Error en detección de fallas (level {level}): {str(e)}")
+        return AIAnalysisResult( # ### CORRECCIÓN: Devolver AIAnalysisResult en caso de error
+            analysis_type='fault_detection',
+            status='error',
+            error=str(e),
+            predictions={},
+            confidence=0.0,
+            explanation={'summary': f"Error en detección de fallas (level {level}): {str(e)}"},
+            metadata={'level': level}
+        )
 
+# ### CAMBIO: Actualizar el tipo de retorno a AIAnalysisResult
 def execute_health_prediction(df: pd.DataFrame, model: HealthPredictionModel,
-                            level: int, metadata: Optional[BatteryMetadata]) -> Dict[str, Any]:
+                             level: int, metadata: Optional[BatteryMetadata]) -> AIAnalysisResult:
     """Ejecutar predicción de salud"""
     try:
-        # CORRECCIÓN: Cambiar model.analyze a model.predict_health
-        result = model.predict_health(df, level=level)
-
-        # Guardar en base de datos si es exitoso
-        # Se asume que el `AnalysisResult` de `src.models.battery` es el que requiere `level_of_analysis`
-        # y que se hará un solo `db.session.commit()` al final del `analyze_battery` endpoint.
-        # Por lo tanto, aquí solo se añade al session, no se comitea.
-        if result.get('current_soh') is not None:
-            analysis = AnalysisResult(
-                battery_id=df['battery_id'].iloc[0] if 'battery_id' in df.columns else 0,
-                analysis_type='health_prediction',
-                result=json.dumps(result.get('predictions', {})),
-                confidence=result.get('confidence_score', 0.0), # CORRECCIÓN: Usar confidence_score
-                rul_prediction=result.get('rul_days'),
-                explanation=json.dumps(result.get('explanation', {})),
-                model_version=f'2.0-level{level}',
-                level_of_analysis=level # CORRECCIÓN: Añadir level_of_analysis
-            )
-            db.session.add(analysis)
-
-        return {
-            'status': 'success',
-            'analysis_type': 'health_prediction',
-            'level': level,
-            **result
-        }
+        result = model.predict_health(df, level=level, battery_metadata=metadata) # Pasar battery_metadata
+        return result # Retornar el objeto AIAnalysisResult directamente
     except Exception as e:
-        logger.error(f"Error en predicción de salud: {str(e)}")
-        # NO hacer db.session.rollback() aquí, se maneja en el endpoint principal
-        return {
-            'status': 'error',
-            'error': str(e),
-            'analysis_type': 'health_prediction'
-        }
+        logger.error(f"Error en predicción de salud (level {level}): {str(e)}")
+        return AIAnalysisResult( # ### CORRECCIÓN: Devolver AIAnalysisResult en caso de error
+            analysis_type='health_prediction',
+            status='error',
+            error=str(e),
+            predictions={},
+            confidence=0.0,
+            explanation={'summary': f"Error en predicción de salud (level {level}): {str(e)}"},
+            metadata={'level': level}
+        )
 
+# ### CAMBIO: Añadir el parámetro 'level' a la detección de anomalías
 def execute_anomaly_detection(df: pd.DataFrame, engine: ContinuousMonitoringEngine,
-                            metadata: Optional[BatteryMetadata]) -> Dict[str, Any]:
+                              metadata: Optional[BatteryMetadata], level: int) -> AIAnalysisResult: # ### CAMBIO: Tipo de retorno y parámetro level
     """Ejecutar detección de anomalías específica"""
     try:
         # Usar el motor de monitoreo continuo para detección de anomalías
-        result = engine.analyze_continuous(df, metadata)
-
-        # Extraer información específica de anomalías
-        predictions = result.predictions
-        anomaly_info = {
-            'anomalies_detected': predictions.get('issues_detected', False),
-            'anomaly_count': len(predictions.get('details', {}).get('anomalies', [])),
-            'anomaly_score': predictions.get('anomaly_score', 0.0),
-            'anomalies': predictions.get('details', {}).get('anomalies', []),
-            'analysis_timestamp': result.timestamp.isoformat(),
-            'data_points_analyzed': result.metadata.get('data_points', 0)
-        }
-
-        return {
-            'status': 'success',
-            'analysis_type': 'anomaly_detection',
-            **anomaly_info
-        }
+        result = engine.analyze_continuous(df, metadata, level=level) # ### CAMBIO: Pasar el nivel
+        return result # ### CAMBIO: Retornar el objeto AIAnalysisResult directamente
     except Exception as e:
-        logger.error(f"Error en detección de anomalías: {str(e)}")
-        return {
-            'status': 'error',
-            'error': str(e),
-            'analysis_type': 'anomaly_detection'
-        }
+        logger.error(f"Error en detección de anomalías (level {level}): {str(e)}")
+        return AIAnalysisResult( # ### CORRECCIÓN: Devolver AIAnalysisResult en caso de error
+            analysis_type='anomaly_detection',
+            status='error',
+            error=str(e),
+            predictions={},
+            confidence=0.0,
+            explanation={'summary': f"Error en detección de anomalías (level {level}): {str(e)}"},
+            metadata={'level': level}
+        )
 
 def generate_comprehensive_explanations(df: pd.DataFrame, results: Dict[str, Any],
-                                      explainer: XAIExplainer, level: int) -> Dict[str, Any]:
+                                        explainer: XAIExplainer, level: int) -> Dict[str, Any]:
     """Generar explicaciones comprensivas para todos los análisis"""
     explanations = {}
 
     try:
         # Explicar detección de fallas
-        if 'fault_detection' in results and results['fault_detection'].get('status') == 'success':
+        # ### CAMBIO: Acceder a los resultados del dataclass AIAnalysisResult
+        if 'fault_detection' in results and results['fault_detection'].status == 'success':
             explanations['fault_detection'] = explainer.explain_fault_detection(
-                df, results['fault_detection']
+                df, results['fault_detection'].predictions # Pasar solo las predicciones si es lo que explain_fault_detection espera
             )
 
         # Explicar predicción de salud
-        if 'health_prediction' in results and results['health_prediction'].get('status') == 'success':
+        # ### CAMBIO: Acceder a los resultados del dataclass AIAnalysisResult
+        if 'health_prediction' in results and results['health_prediction'].status == 'success':
             explanations['health_prediction'] = explainer.explain_health_prediction(
-                df, results['health_prediction']
+                df, results['health_prediction'].predictions # Pasar solo las predicciones
             )
 
         # Explicación general del sistema
@@ -502,9 +456,10 @@ def generate_system_summary(results: Dict[str, Any], level: int) -> Dict[str, An
 
     # Revisar monitoreo continuo
     if 'continuous_monitoring' in results:
-        cm_result = results['continuous_monitoring']
-        if cm_result.get('predictions', {}).get('issues_detected'):
-            severity = cm_result.get('predictions', {}).get('severity', 'low')
+        cm_result = results['continuous_monitoring'] # Esto es ahora un AIAnalysisResult
+        # ### CAMBIO: Acceder a 'predictions' directamente del objeto AIAnalysisResult
+        if cm_result.predictions.get('issues_detected'):
+            severity = cm_result.predictions.get('severity', 'low')
             if severity in ['high', 'critical']:
                 critical_issues += 1
                 summary['priority_alerts'].append({
@@ -517,25 +472,35 @@ def generate_system_summary(results: Dict[str, Any], level: int) -> Dict[str, An
 
     # Revisar detección de fallas
     if 'fault_detection' in results:
-        fd_result = results['fault_detection']
-        if fd_result.get('fault_detected'):
-            severity = fd_result.get('severity', 'low')
+        fd_result = results['fault_detection'] # Esto es ahora un AIAnalysisResult
+        # ### CAMBIO: Acceder a 'predictions' directamente del objeto AIAnalysisResult
+        if fd_result.predictions.get('overall_fault_detected'): # asumiendo que el campo es 'overall_fault_detected'
+            severity = fd_result.predictions.get('severity', 'low')
             if severity in ['high', 'critical']:
                 critical_issues += 1
                 summary['priority_alerts'].append({
                     'type': 'fault_detection',
                     'severity': severity,
-                    'fault_type': fd_result.get('fault_type'),
-                    'message': f"Falla detectada: {fd_result.get('fault_type', 'desconocida')}"
+                    'fault_type': fd_result.predictions.get('fault_type'),
+                    'message': f"Falla detectada: {fd_result.predictions.get('fault_type', 'desconocida')}"
                 })
             else:
                 warnings += 1
+        # ### CAMBIO: Si la detección de fallas fue un error, registrarlo
+        elif fd_result.status == 'error':
+             summary['priority_alerts'].append({
+                    'type': 'fault_detection',
+                    'severity': 'error',
+                    'message': f"Error en detección de fallas: {fd_result.error}"
+                })
+
 
     # Revisar salud de la batería
     if 'health_prediction' in results:
-        hp_result = results['health_prediction']
-        soh = hp_result.get('current_soh', 100)
-        rul_days = hp_result.get('rul_days', 365)
+        hp_result = results['health_prediction'] # Esto es ahora un AIAnalysisResult
+        # ### CAMBIO: Acceder a 'predictions' directamente del objeto AIAnalysisResult
+        soh = hp_result.predictions.get('current_soh', 100)
+        rul_days = hp_result.predictions.get('predicted_eol_days', 365) # Asumiendo campo 'predicted_eol_days'
 
         if soh < 70 or rul_days < 90:
             critical_issues += 1
@@ -548,6 +513,14 @@ def generate_system_summary(results: Dict[str, Any], level: int) -> Dict[str, An
             })
         elif soh < 80 or rul_days < 180:
             warnings += 1
+        # ### CAMBIO: Si la predicción de salud fue un error, registrarlo
+        elif hp_result.status == 'error':
+             summary['priority_alerts'].append({
+                    'type': 'health_prediction',
+                    'severity': 'error',
+                    'message': f"Error en predicción de salud: {hp_result.error}"
+                })
+
 
     # Determinar estado general
     if critical_issues > 0:
@@ -564,14 +537,15 @@ def generate_system_summary(results: Dict[str, Any], level: int) -> Dict[str, An
 
     return summary
 
+# ### CAMBIO: Actualizar la firma para aceptar resultados como AIAnalysisResult o dicts (post-conversión)
 def save_analysis_results(battery_id: int, results: Dict[str, Any], level: int):
     """Guardar resultados de análisis en base de datos"""
     try:
         # Crear entrada de resumen general
-        summary_analysis = AnalysisResult(
+        summary_analysis = DBAnalysisResult( # Usar el modelo de la DB
             battery_id=battery_id,
             analysis_type='comprehensive_analysis',
-            result=json.dumps({
+            result=json.dumps({ # Este result es un resumen de los resultados
                 'level': level,
                 'results_summary': {k: v.get('status', 'unknown') for k, v in results.items() if isinstance(v, dict)},
                 'timestamp': datetime.now(timezone.utc).isoformat()
@@ -579,9 +553,30 @@ def save_analysis_results(battery_id: int, results: Dict[str, Any], level: int):
             confidence=calculate_overall_confidence(results),
             explanation=json.dumps(results.get('explanations', {})),
             model_version=f'2.0-level{level}',
-            level_of_analysis=level # CORRECCIÓN: Añadir level_of_analysis
+            level_of_analysis=level
         )
         db.session.add(summary_analysis)
+
+        # ### CAMBIO: Guardar los resultados individuales (Fault, Health, etc.)
+        for analysis_type, result_data in results.items():
+            if analysis_type in ['continuous_monitoring', 'fault_detection', 'health_prediction', 'anomaly_detection']:
+                if result_data.get('status') == 'success':
+                    db_analysis = DBAnalysisResult(
+                        battery_id=battery_id,
+                        analysis_type=analysis_type,
+                        result=json.dumps(result_data.get('predictions', {})),
+                        confidence=result_data.get('confidence', 0.0),
+                        # Adaptar los campos específicos si son relevantes para el modelo DB
+                        fault_detected=result_data.get('predictions', {}).get('overall_fault_detected'),
+                        fault_type=result_data.get('predictions', {}).get('main_status'), # o el campo que uses
+                        severity=result_data.get('predictions', {}).get('severity'),
+                        rul_prediction=result_data.get('predictions', {}).get('predicted_eol_days'),
+                        explanation=json.dumps(result_data.get('explanation', {})),
+                        model_version=f'2.0-level{level}',
+                        level_of_analysis=level
+                    )
+                    db.session.add(db_analysis)
+
 
         db.session.commit()
         logger.info(f"Resultados guardados para batería {battery_id}")
@@ -595,9 +590,9 @@ def calculate_overall_confidence(results: Dict[str, Any]) -> float:
     confidences = []
 
     for analysis_type, result in results.items():
-        # CORRECCIÓN: Usar 'confidence_score'
-        if isinstance(result, dict) and 'confidence_score' in result:
-            confidences.append(result['confidence_score'])
+        # ### CAMBIO: Usar 'confidence' directamente del diccionario
+        if isinstance(result, dict) and 'confidence' in result:
+            confidences.append(result['confidence'])
 
     if not confidences:
         return 0.5
@@ -614,10 +609,10 @@ def calculate_overall_confidence(results: Dict[str, Any]) -> float:
     total_weight = 0
 
     for analysis_type, result in results.items():
-        # CORRECCIÓN: Usar 'confidence_score'
-        if isinstance(result, dict) and 'confidence_score' in result:
+        # ### CAMBIO: Usar 'confidence' directamente del diccionario
+        if isinstance(result, dict) and 'confidence' in result:
             weight = weights.get(analysis_type, 1.0)
-            weighted_sum += result['confidence_score'] * weight
+            weighted_sum += result['confidence'] * weight
             total_weight += weight
 
     return weighted_sum / total_weight if total_weight > 0 else 0.5
@@ -654,14 +649,29 @@ def continuous_monitoring(battery_id):
 
         # Definir el nivel para este endpoint: siempre Nivel 1 para monitoreo continuo
         analysis_level = 1
-        include_explanation = request.get_json().get('include_explanation', False) # Si quieres que sea configurable
+        # ### CORRECCIÓN: Obtener include_explanation del request_data, no directamente del request.get_json()
+        request_data = request.get_json() or {}
+        include_explanation = request_data.get('include_explanation', False)
 
         # Ejecutar análisis
-        result = execute_continuous_monitoring(df, engine, battery_metadata, analysis_level, include_explanation)
+        # ### CAMBIO: Pasar todos los argumentos requeridos a execute_continuous_monitoring
+        result_ai_analysis = execute_continuous_monitoring(battery_id, df, engine, battery_metadata, analysis_level, include_explanation)
+
         # Comitear después de cada endpoint específico, si no es parte de un análisis completo.
         # Esto podría ser opcional y depender de si se desea guardar cada análisis individualmente.
         # Por simplicidad y consistencia con los otros endpoints específicos, se añade un commit aquí.
         try:
+            # ### CAMBIO: Guardar el resultado en la base de datos
+            db_analysis = DBAnalysisResult(
+                battery_id=battery_id,
+                analysis_type='continuous_monitoring',
+                result=json.dumps(result_ai_analysis.predictions), # Convertir predicciones a JSON string
+                confidence=result_ai_analysis.confidence,
+                explanation=json.dumps(result_ai_analysis.explanation),
+                model_version=f'2.0-level{analysis_level}',
+                level_of_analysis=analysis_level
+            )
+            db.session.add(db_analysis)
             db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -671,7 +681,7 @@ def continuous_monitoring(battery_id):
 
         return jsonify({
             'success': True,
-            'data': result
+            'data': result_ai_analysis.to_dict() # ### CAMBIO: Convertir el objeto AIAnalysisResult a dict para la respuesta JSON
         })
     except Exception as e:
         logger.error(f"Error en monitoreo continuo: {str(e)}")
@@ -680,7 +690,7 @@ def continuous_monitoring(battery_id):
             'success': False,
             'error': str(e)
         }), 500
-
+        
 @ai_bp.route('/fault-detection/<int:battery_id>', methods=['POST'])
 @cross_origin()
 @timing_decorator
