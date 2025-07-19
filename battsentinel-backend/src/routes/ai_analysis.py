@@ -59,6 +59,7 @@ SYSTEM_CONFIG = {
     'max_processing_time_level2': 30.0,  # 30 segundos
     'min_data_points_level1': 5,
     'min_data_points_level2': 20
+    'level2_analysis_data_window_days': 7 # Valor por defecto para Nivel 2
 }
 
 def timing_decorator(func):
