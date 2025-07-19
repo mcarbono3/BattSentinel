@@ -206,7 +206,7 @@ class AnalysisResult(db.Model):
     battery_id = Column(Integer, ForeignKey('batteries.id'), nullable=False)
     analysis_type = Column(String(100), nullable=False)  # fault_detection, health_prediction, etc.
     result = Column(JSONB, nullable=False)  # Usa JSONB para PostgreSQL
-    confidence_score = Column(Float)
+    confidence = Column(Float)
     model_version = Column(String(50))
     processing_time = Column(Float)  # segundos
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -237,7 +237,7 @@ class AnalysisResult(db.Model):
             'battery_id': self.battery_id,
             'analysis_type': self.analysis_type,
             'result': result_data,
-            'confidence_score': self.confidence_score,
+            'confidence': self.confidence,
             'model_version': self.model_version,
             'processing_time': self.processing_time,
             'created_at': self.created_at.isoformat() if self.created_at else None,
