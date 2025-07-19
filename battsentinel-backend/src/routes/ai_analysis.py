@@ -652,8 +652,12 @@ def continuous_monitoring(battery_id):
         models = get_or_create_models()
         engine = models['continuous_engine']
 
+        # Definir el nivel para este endpoint: siempre Nivel 1 para monitoreo continuo
+        analysis_level = 1
+        include_explanation = request.get_json().get('include_explanation', False) # Si quieres que sea configurable
+
         # Ejecutar análisis
-        result = execute_continuous_monitoring(df, engine, battery_metadata)
+        result = execute_continuous_monitoring(df, engine, battery_metadata, analysis_level, include_explanation)
         # Comitear después de cada endpoint específico, si no es parte de un análisis completo.
         # Esto podría ser opcional y depender de si se desea guardar cada análisis individualmente.
         # Por simplicidad y consistencia con los otros endpoints específicos, se añade un commit aquí.
