@@ -708,7 +708,6 @@ def save_analysis_results(battery_id: int, results_output_json: Dict[str, Any], 
                 else:
                     logger.warning(f"No se guardó el resultado detallado para '{analysis_type}' debido a su estado: {result_data.get('status')}")
 
-
         db.session.commit()
         logger.info(f"Resultados de análisis (Nivel {level}) guardados exitosamente para batería {battery_id}.")
 
