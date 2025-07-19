@@ -885,7 +885,7 @@ class FaultDetectionModel:
                     # Crear un target dummy si no hay uno real para el selector
                     dummy_target = np.zeros(features_scaled.shape[0])
                     if features_scaled.shape[0] > self.feature_selector.k:
-                         self.feature_selector.k = min(features_scaled.shape[1], 20) # Limit k
+                         self.feature_selector.k = min(features_scaled.shape[1], 2_0) # Limit k
                     self.feature_selector.fit(features_scaled, dummy_target) # Dummy fit
                 
             features_selected = self.feature_selector.transform(features_scaled)
@@ -1727,14 +1727,20 @@ class AdvancedAnalysisEngine:
         overall_severity = None
         overall_rul_prediction = None
 
-        if 'fault_detection' in combined_predictions:
-            fd_preds = combined_predictions['fault_detection']
+        # Re-evaluar `combined_predictions` definition, it's not defined here
+        # Assuming `combined_predictions` should aggregate information from deep_res, anomaly_res, etc.
+        # For simplicity, I'll extract these from `deep_res` first, as they are part of that structure
+        if 'lstm_fault_detection' in deep_res:
+            fd_preds = deep_res['lstm_fault_detection']
             overall_fault_detected = fd_preds.get('fault_detected', False)
-            overall_fault_type = fd_preds.get('main_fault')
+            # This is where the fault type from FaultDetectionModel would come from, not LSTM directly
+            # For now, a placeholder or infer from deep_res
+            # If `main_fault` is available in deep_res, use it. Otherwise, assume 'unknown'
+            overall_fault_type = fd_preds.get('main_fault', 'unknown') if fd_preds.get('fault_detected') else None
             overall_severity = FaultDetectionModel().severity_mapping.get(overall_fault_type, 'none') # Reutilizar mapeo
 
-        if 'health_prediction' in combined_predictions:
-            hp_preds = combined_predictions['health_prediction']
+        if 'gru_health_prediction' in deep_res:
+            hp_preds = deep_res['gru_health_prediction']
             overall_rul_prediction = hp_preds.get('rul_days')
         
         # Override with survival analysis if available
@@ -1826,6 +1832,7 @@ class ComprehensiveAnalysisEngine:
 
             # 2. Ejecutar Detección de Fallas (Nivel 2)
             try:
+                # CORRECCIÓN: Llamar a predict_fault en lugar de analyze
                 fault_detection_result = self.fault_detection_model.predict_fault(df, battery_metadata)
                 if fault_detection_result:
                     fd_explanation = self.xai_explainer.explain_fault_detection(df, fault_detection_result.to_dict())
@@ -1843,6 +1850,7 @@ class ComprehensiveAnalysisEngine:
 
             # 3. Ejecutar Predicción de Salud (Nivel 2)
             try:
+                # CORRECCIÓN: Llamar a predict_health en lugar de analyze
                 health_prediction_result = self.health_prediction_model.predict_health(df, battery_metadata)
                 if health_prediction_result:
                     hp_explanation = self.xai_explainer.explain_health_prediction(df, health_prediction_result.to_dict())
