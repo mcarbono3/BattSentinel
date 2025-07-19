@@ -1,4 +1,4 @@
-"""
+    """
 BattSentinel AI Analysis Routes - Versión Mejorada 2.0
 Sistema de Monitoreo de Baterías de Clase Industrial
 
@@ -328,8 +328,6 @@ def analyze_battery(battery_id: int):
             # Reemplazar infinitos con NaN
             df[numeric_cols] = df[numeric_cols].replace([np.inf, -np.inf], np.nan)
             
-            # Rellenar NaN con la media de la columna (o el método que sea apropiado para tu aplicación)
-            # Es importante no usar una media NaN si toda la columna es NaN.
             for col in numeric_cols:
                 if df[col].isnull().any():
                     mean_val = df[col].mean()
@@ -342,19 +340,16 @@ def analyze_battery(battery_id: int):
         # NUEVA ADICIÓN: Escalado de características (Feature Scaling)
         try:
             scaler = StandardScaler()
-            # Asegúrate de que los datos sean numéricos y finitos antes de escalar
-            # Esto debería ser redundante si el `fillna` y `replace` anteriores funcionaron,
-            # pero es una buena práctica para la robustez.
             df_to_scale = df[numeric_cols].copy()
             df_to_scale = df_to_scale.replace([np.inf, -np.inf], np.nan).fillna(df_to_scale.mean())
 
             df[numeric_cols] = scaler.fit_transform(df_to_scale)
             logger.info(f"Columnas numéricas {numeric_cols} escaladas usando StandardScaler.")
             # Opcional: imprimir estadísticas después del escalado para depuración
-            # logger.debug(f"Max values after scaling: \n{df[numeric_cols].max()}")
-            # logger.debug(f"Min values after scaling: \n{df[numeric_cols].min()}")
-            # logger.debug(f"Mean values after scaling: \n{df[numeric_cols].mean()}")
-            # logger.debug(f"Std values after scaling: \n{df[numeric_cols].std()}")
+            logger.debug(f"Max values after scaling: \n{df[numeric_cols].max()}")
+            logger.debug(f"Min values after scaling: \n{df[numeric_cols].min()}")
+            logger.debug(f"Mean values after scaling: \n{df[numeric_cols].mean()}")
+            logger.debug(f"Std values after scaling: \n{df[numeric_cols].std()}")
 
         except Exception as e:
             logger.error(f"Error durante el escalado de características: {str(e)}", exc_info=True)
