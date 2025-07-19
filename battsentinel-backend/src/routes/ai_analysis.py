@@ -338,25 +338,35 @@ def analyze_battery(battery_id: int):
                         df[col] = df[col].fillna(mean_val)
 
         # NUEVA ADICIÓN: Escalado de características (Feature Scaling)
-        try:
-            scaler = StandardScaler()
-            df_to_scale = df[numeric_cols].copy()
-            df_to_scale = df_to_scale.replace([np.inf, -np.inf], np.nan).fillna(df_to_scale.mean())
+        cols_to_scale = []
+        cols_skipped_from_scaling = []
+        for col in numeric_cols:
+            if df[col].std() == 0: # Si la desviación estándar es 0, todos los valores son iguales
+                logger.warning(f"Columna '{col}' tiene varianza cero. Se saltará el escalado para esta columna.")
+            else:
+                cols_to_scale.append(col)
+        if cols_to_scale:
+            try:
+                scaler = StandardScaler()
+                df[cols_to_scale] = scaler.fit_transform(df[cols_to_scale])
+                logger.info(f"Columnas numéricas {cols_to_scale} escaladas usando StandardScaler.")
+                if cols_skipped_from_scaling:
+                    logger.info(f"Columnas saltadas del escalado (varianza cero): {cols_skipped_from_scaling}")
+            except Exception as e:
+                logger.error(f"Error durante el escalado de características: {str(e)}", exc_info=True)
+                pass # Continúa sin escalar si hay un error, pero registra el problema
+        else:
+            logger.warning("No hay columnas numéricas válidas para escalar.")
 
-            df[numeric_cols] = scaler.fit_transform(df_to_scale)
-            logger.info(f"Columnas numéricas {numeric_cols} escaladas usando StandardScaler.")
-            # Opcional: imprimir estadísticas después del escalado para depuración
-            logger.debug(f"Max values after scaling: \n{df[numeric_cols].max()}")
-            logger.debug(f"Min values after scaling: \n{df[numeric_cols].min()}")
-            logger.debug(f"Mean values after scaling: \n{df[numeric_cols].mean()}")
-            logger.debug(f"Std values after scaling: \n{df[numeric_cols].std()}")
-
-        except Exception as e:
-            logger.error(f"Error durante el escalado de características: {str(e)}", exc_info=True)
-            # Continúa sin escalar si hay un error, pero registra el problema
-            pass
-        # Obtener los modelos de IA inicializados
-        models = get_or_create_models()
+        # Añadir logs de depuración para inspeccionar el DataFrame antes de pasarlo a los modelos
+        logger.debug(f"DataFrame antes de pasar a los modelos (después de preprocesamiento y escalado):")
+        logger.debug(f"NaNs restantes: \n{df[numeric_cols].isnull().sum()}")
+        logger.debug(f"Infinities restantes: \n{(df[numeric_cols] == np.inf).sum() + (df[numeric_cols] == -np.inf).sum()}")
+        logger.debug(f"Valores máximos para columnas numéricas: \n{df[numeric_cols].max()}")
+        logger.debug(f"Valores mínimos para columnas numéricas: \n{df[numeric_cols].min()}")
+        
+    # Obtener los modelos de IA inicializados
+    models = get_or_create_models()
 
         # Diccionario para almacenar los resultados de los análisis (objetos AIAnalysisResult)
         results: Dict[str, AIAnalysisResult] = {}
