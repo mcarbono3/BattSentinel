@@ -21,7 +21,7 @@ from pathlib import Path
 
 from flask_cors import cross_origin
 
-from sklearn.preprocessing import StandardScaler 
+
 # Importaciones locales
 import sys
 import os
