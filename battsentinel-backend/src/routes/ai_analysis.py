@@ -16,6 +16,8 @@ import logging
 from typing import Dict, List, Optional, Any
 import time
 from functools import wraps
+import joblib # Añadir esta importación
+from pathlib import P
 
 from flask_cors import cross_origin
 
@@ -63,6 +65,13 @@ SYSTEM_CONFIG = {
     'level2_analysis_data_window_days': 7 # Valor por defecto para Nivel 2
 }
 
+# --- Directorio donde se guardarán/cargarán los modelos ---
+# Debe ser accesible en tu entorno de Render.
+# Si estás en la raíz de tu proyecto, los modelos estarán en 'trained_models/'
+MODELS_DIR = Path("trained_models")
+FAULT_MODEL_PATH = MODELS_DIR / 'fault_detection_model.joblib'
+HEALTH_MODEL_PATH = MODELS_DIR / 'health_prediction_model.joblib'
+
 def timing_decorator(func):
     """Decorador para medir tiempo de ejecución"""
     @wraps(func)
@@ -100,9 +109,26 @@ def get_or_create_models():
 
         try:
             MODEL_CACHE['continuous_engine'] = ContinuousMonitoringEngine()
-            MODEL_CACHE['fault_model'] = FaultDetectionModel()
-            MODEL_CACHE['health_model'] = HealthPredictionModel()
             MODEL_CACHE['xai_explainer'] = XAIExplainer()
+            
+            # --- Cargar FaultDetectionModel pre-entrenado ---
+            if FAULT_MODEL_PATH.exists():
+                logger.info(f"Cargando FaultDetectionModel desde: {FAULT_MODEL_PATH}")
+                MODEL_CACHE['fault_model'] = joblib.load(FAULT_MODEL_PATH)
+            else:
+                logger.warning(f"FaultDetectionModel pre-entrenado no encontrado en {FAULT_MODEL_PATH}. Inicializando uno nuevo (puede no estar entrenado).")
+                MODEL_CACHE['fault_model'] = FaultDetectionModel()
+                # Considerar aquí un error crítico si el modelo pre-entrenado es obligatorio
+
+            # --- Cargar HealthPredictionModel pre-entrenado ---
+            if HEALTH_MODEL_PATH.exists():
+                logger.info(f"Cargando HealthPredictionModel desde: {HEALTH_MODEL_PATH}")
+                MODEL_CACHE['health_model'] = joblib.load(HEALTH_MODEL_PATH)
+            else:
+                logger.warning(f"HealthPredictionModel pre-entrenado no encontrado en {HEALTH_MODEL_PATH}. Inicializando uno nuevo (puede no estar entrenado).")
+                MODEL_CACHE['health_model'] = HealthPredictionModel()
+                # Considerar aquí un error crítico si el modelo pre-entrenado es obligatorio
+            
             MODEL_CACHE['last_updated'] = current_time
 
             logger.info("Modelos inicializados correctamente")
