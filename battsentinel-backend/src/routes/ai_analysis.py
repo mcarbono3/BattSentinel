@@ -498,12 +498,17 @@ def execute_continuous_monitoring(battery_id: int, df: pd.DataFrame, engine: Con
             error=str(e),
             predictions={},
             confidence=0.0,
-            explanation=AIAnalysisResultExplanation(
-                method=f"continuous_monitoring_level_{level}",
-                summary=f"Error en monitoreo continuo: {str(e)}"
-            ),
-            metadata=AIAnalysisResultMetadata(level=level, models_used=[], processing_time_ms=0.0, data_points=len(df))
-        )
+            explanation={
+                "method": f"fault_detection_level_{level}",
+                "summary": f"Error en detección de fallas: {str(e)}"
+            },
+            metadata={ # <--- CAMBIO AQUÍ: Ahora es un diccionario
+                'level': level,
+                'models_used': [],
+                'processing_time_ms': 0.0,
+                'data_points': len(df)
+            }
+        )
 
 def execute_fault_detection(df: pd.DataFrame, model: FaultDetectionModel,
                            level: int, metadata: Optional[BatteryMetadata]) -> AIAnalysisResult:
