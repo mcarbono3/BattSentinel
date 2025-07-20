@@ -134,7 +134,7 @@ def get_or_create_models():
             logger.info("Modelos inicializados correctamente")
         except Exception as e:
             logger.error(f"Error inicializando modelos: {str(e)}")
-            # Mantener modelos existentes si falló la actualización
+            # Mantener modelos existentes si falló la actualización.
 
     return MODEL_CACHE
 
