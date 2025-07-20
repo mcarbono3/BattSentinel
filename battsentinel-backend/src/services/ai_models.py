@@ -957,8 +957,13 @@ class FaultDetectionModel:
             
             fault_prediction_proba = self.random_forest.predict_proba(features_selected)[0]
             fault_class = self.random_forest.predict(features_selected)[0]
-
-            main_fault_type = self.fault_types.get(int(fault_class), 'unknown') # Asegurar int
+            
+            try:
+                fault_class_int = int(fault_class)
+            except (ValueError, TypeError):
+                fault_class_int = -1 
+            main_fault_type = self.fault_types.get(fault_class_int, 'unknown')
+            
             confidence = float(np.max(fault_prediction_proba)) # Asegurar float
             fault_detected = main_fault_type != 'normal'
 
