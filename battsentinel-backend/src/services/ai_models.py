@@ -764,6 +764,10 @@ class FaultDetectionModel:
         }
         self._initialize_models()
 
+    def _get_numerical_severity(self, severity_str: Optional[str]) -> int:
+        """Convierte la severidad de cadena a su valor numérico correspondiente."""
+        return self.numerical_severity_levels.get(severity_str, self.numerical_severity_levels['none'])
+        
     def _initialize_models(self):
         """Inicializar todos los modelos de ML/DL"""
         try:
@@ -907,92 +911,153 @@ class FaultDetectionModel:
         except Exception as e:
             logger.error(f"Error entrenando modelos de detección de fallas: {str(e)}")
 
-    def predict_fault(self, df: pd.DataFrame, level: int = 2, battery_metadata: Optional[BatteryMetadata] = None) -> AnalysisResult:
-        """Predecir fallas usando el modelo avanzado (Nivel 2)"""
+    def predict_fault(self, data: pd.DataFrame, battery_metadata: Optional[Any] = None) -> Any: # Cambiado Any por AnalysisResult
+        """
+        Realiza una predicción robusta y eficiente de fallas de la batería.
+        Este método integra preprocesamiento, detección de anomalías (Isolation Forest)
+        y clasificación de fallas (Random Forest) para determinar la presencia y tipo
+        de fallas, así como su severidad.
+        """
         start_time = datetime.now()
+        
+        # Inicialización de resultados predeterminados
+        predicted_fault_type = 'normal'
+        assigned_severity_str = 'none'
+        confidence_score = 0.0
+        fault_detected = False
+        
         try:
-            df_processed = self.preprocessor.prepare_features(df, battery_metadata)
-
-            # Asegurar que haya suficientes datos después del preprocesamiento para predecir
-            if len(df_processed) == 0:
-                raise ValueError("DataFrame preprocesado está vacío.")
-
-            # Seleccionar características
-            feature_df = df_processed.select_dtypes(include=[np.number]).fillna(0)
-            if feature_df.empty:
-                 raise ValueError("No hay características numéricas para la predicción.")
-
-            # Asegurar que el scaler y el selector de características estén ajustados
-            # Esto es crítico para la inferencia. Si no se entrenaron antes, hay que manejarlo.
-            if not hasattr(self.scaler, 'mean_'):
-                # En un entorno de producción, esto indicaría que el modelo no ha sido entrenado.
-                # Para un script de prueba, se puede hacer un fit_transform aquí, pero no es lo ideal.
-                # Para robustez, se podría hacer un fit_transform si solo se llama una vez en el ciclo de vida.
-                # Para este caso, simularemos un fit para que funcione.
-                self.scaler.fit(feature_df) # Temporal fix for not-fitted scaler
-                
-            features_scaled = self.scaler.transform(feature_df)
-
-            if not hasattr(self.feature_selector, 'scores_'):
-                # Si el selector no ha sido ajustado, se puede hacer un dummy fit si es necesario
-                # O bien, usar todas las características escaladas directamente.
-                self.feature_selector.k = 'all' # Reset k if not fitted or to use all features
-                if features_scaled.shape[0] > 1 and features_scaled.shape[1] > 0:
-                    # Crear un target dummy si no hay uno real para el selector
-                    dummy_target = np.zeros(features_scaled.shape[0])
-                    if features_scaled.shape[0] > self.feature_selector.k:
-                         self.feature_selector.k = min(features_scaled.shape[1], 2_0) # Limit k
-                    self.feature_selector.fit(features_scaled, dummy_target) # Dummy fit
-                
-            features_selected = self.feature_selector.transform(features_scaled)
-
-            # Predicción con RandomForest (ejemplo, se pueden usar otros modelos)
-            if self.random_forest is None or not hasattr(self.random_forest, 'classes_'):
-                # Si el modelo no está entrenado, lanzar un error o devolver un resultado de "modelo no entrenado"
-                raise RuntimeError("RandomForest model no está entrenado para predicción de fallas.")
-
-            # Asegurarse de que el input para predict_proba sea 2D
-            if len(features_selected.shape) == 1:
-                features_selected = features_selected.reshape(1, -1)
+            # 1. Preparación y validación de los datos de entrada
+            df_processed = self.preprocessor.prepare_features(data.copy(), battery_metadata)
             
-            fault_prediction_proba = self.random_forest.predict_proba(features_selected)[0]
-            fault_class = self.random_forest.predict(features_selected)[0]
-
-            main_fault_type = self.fault_types.get(int(fault_class), 'unknown')          
+            # Asegurar que las columnas de características requeridas estén presentes
+            features_to_predict = [col for col in self.feature_columns if col in df_processed.columns]
             
-            confidence = float(np.max(fault_prediction_proba)) # Asegurar float
-            fault_detected = main_fault_type != 'normal'
+            if not features_to_predict:
+                error_msg = "No se encontraron columnas de características válidas para la predicción de fallas."
+                logger.warning(error_msg)
+                return self.continuous_engine._create_error_result(error_msg, 'fault_detection', 2)
+
+            # Tomar la última lectura para análisis puntual de clasificación
+            X = df_processed[features_to_predict].tail(1) 
+
+            if X.empty:
+                error_msg = "DataFrame procesado vacío; no hay datos para la predicción de fallas."
+                logger.warning(error_msg)
+                return self.continuous_engine._create_error_result(error_msg, 'fault_detection', 2)
+            
+            # 2. Escalado de características
+            # Es crucial que el scaler esté ya entrenado. En un flujo real, se entrena con datos de entrenamiento.
+            # Si no está entrenado, se podría intentar un fit provisional (NO recomendado para producción)
+            # o generar un error. Asumimos que `self.scaler` ya está `fit`.
+            if self.scaler is None or not hasattr(self.scaler, 'mean_'): 
+                logger.error("Scaler no inicializado o no entrenado. No se puede escalar.")
+                return self.continuous_engine._create_error_result("Scaler no entrenado para predicción de fallas.", 'fault_detection', 2)
+            
+            X_scaled = self.scaler.transform(X)
+            
+            # Aplicar selección de características si el selector está entrenado
+            if self.feature_selector and hasattr(self.feature_selector, 'transform') and hasattr(self.feature_selector, 'scores_') and self.feature_selector.scores_ is not None:
+                X_final_features = self.feature_selector.transform(X_scaled)
+            else:
+                X_final_features = X_scaled
+                if self.feature_selector:
+                    logger.warning("Selector de características no entrenado o scores no disponibles. Usando todas las características escaladas.")
+
+
+            # 3. Detección de Anomalías con Isolation Forest
+            if self.isolation_forest and hasattr(self.isolation_forest, 'predict'):
+                try:
+                    anomaly_prediction = self.isolation_forest.predict(X_final_features)
+                    if anomaly_prediction[0] == -1: # -1 indica una anomalía (potencial falla)
+                        logger.info("Anomalía detectada por Isolation Forest.")
+                        fault_detected = True
+                        predicted_fault_type = 'anomaly_detected' # Tipo de falla genérico para anomalías
+                        assigned_severity_str = 'medium' # Severidad inicial de una anomalía
+                except Exception as e:
+                    logger.error(f"Error durante la predicción con Isolation Forest: {e}", exc_info=True)
+            else:
+                logger.warning("Isolation Forest no disponible o no entrenado.")
+
+            # 4. Clasificación de Fallas con Random Forest (o modelos de ML alternativos)
+            # Si un clasificador específico de fallas está entrenado, se prioriza para una detección más precisa.
+            if self.random_forest and hasattr(self.random_forest, 'predict'):
+                try:
+                    # El RandomForest intentará clasificar la falla, independientemente de la anomalía inicial
+                    fault_index_prediction = self.random_forest.predict(X_final_features)[0]
+                    specific_fault_type = self.fault_types.get(fault_index_prediction, 'unknown')
+                    
+                    if specific_fault_type != 'normal':
+                        # Si el Random Forest detecta una falla específica, la priorizamos
+                        predicted_fault_type = specific_fault_type
+                        assigned_severity_str = self.severity_mapping.get(predicted_fault_type, 'none')
+                        fault_detected = True # Confirmamos la detección de falla
+                        
+                        # Obtener la confianza de la predicción
+                        if hasattr(self.random_forest, 'predict_proba'):
+                            probabilities = self.random_forest.predict_proba(X_final_features)[0]
+                            confidence_score = float(np.max(probabilities))
+                        
+                        logger.info(f"Falla clasificada por Random Forest: {predicted_fault_type} (Confianza: {confidence_score:.2f})")
+                    else:
+                        logger.info("Random Forest no detectó fallas específicas (estado normal).")
+
+                except Exception as e:
+                    logger.error(f"Error durante la predicción con Random Forest: {e}", exc_info=True)
+            else:
+                logger.warning("Random Forest u otro clasificador principal no disponible o no entrenado.")
+
+            # 5. Integración de Modelos de Deep Learning (para análisis más avanzados/refinamiento)
+            # Esta sección es un placeholder para futuras integraciones. Si tus modelos DL (LSTM, GRU, TCN, Autoencoder)
+            # están entrenados para clasificar o refinar fallas, su lógica iría aquí.
+            # Ejemplo (conceptual):
+            # if self.lstm_model and fault_detected: # Si ya hay una sospecha de falla
+            #     dl_prediction = self.lstm_model.predict(X_sequence_data) # Requiere datos en formato secuencia
+            #     # Lógica para interpretar la salida de DL y ajustar predicted_fault_type/severity
+
+            # 6. Conversión a severidad numérica y determinación final del estado
+            numerical_severity = self._get_numerical_severity(assigned_severity_str)
+            
+            # Asegurar que fault_detected sea True si la severidad es mayor que 'none'
+            if numerical_severity > self.numerical_severity_levels['none']:
+                fault_detected = True
+            elif not fault_detected: # Si no se detectó nada por ningún modelo
+                predicted_fault_type = 'normal'
+                assigned_severity_str = 'none'
+                numerical_severity = self.numerical_severity_levels['none']
 
             processing_time = (datetime.now() - start_time).total_seconds()
-
+            
+            # 7. Construcción del objeto AnalysisResult final
             return AnalysisResult(
                 analysis_type='fault_detection',
                 timestamp=datetime.now(timezone.utc),
-                confidence_score=confidence, # Usar confidence_score
+                confidence_score=float(confidence_score),
                 predictions={
-                    'fault_detected': fault_detected,
-                    'main_fault': main_fault_type,
-                    'fault_probability': float(fault_prediction_proba[fault_class]), # Asegurar float
-                    'fault_distribution': {self.fault_types.get(i, 'unknown'): float(p) for i, p in enumerate(fault_prediction_proba)} # Asegurar float
+                    'fault_type_predicted': predicted_fault_type,
+                    'severity_level_numeric': numerical_severity,
+                    'is_anomaly_detected_if': fault_detected # Indica si hubo alguna detección inicial de anomalía/falla
                 },
-                explanation={}, # Será llenado por XAIExplainer
+                explanation={'summary': f'Análisis de fallas completado. Tipo de falla: {predicted_fault_type}. Severidad: {assigned_severity_str}.'},
                 metadata={
-                    'processing_time_s': float(processing_time), # Asegurar float
-                    'data_points': int(len(df)), # Asegurar int
-                    'features_count': int(features_selected.shape[1]), # Asegurar int
-                    'level': 2,
-                    'model_used': 'RandomForestClassifier'
+                    'processing_time_ms': float(processing_time * 1000),
+                    'data_points': int(len(data)),
+                    'level': 2, # Análisis de Nivel 2 para detección de fallas
+                    'model_used': 'IsolationForest/RandomForest' # Adaptar según los modelos activos
                 },
-                model_version='2.0-level2-fault-detection',
+                model_version='2.0-fault_prediction-robust',
                 fault_detected=fault_detected,
-                fault_type=main_fault_type,
-                severity=self.severity_mapping.get(main_fault_type, 'none'),
+                fault_type=predicted_fault_type,
+                severity=assigned_severity_str,
                 level_of_analysis=2
             )
+
         except Exception as e:
-            logger.error(f"Error en predicción de fallas: {str(e)}")
-            # Crear AnalysisResult en caso de error
-            return self._create_error_result(str(e), 'fault_detection', 2)
+            logger.error(f"Error crítico e inesperado en predict_fault: {str(e)}", exc_info=True)
+            # Manejo de errores para asegurar que siempre se devuelva un resultado válido
+            return self.continuous_engine._create_error_result(
+                f"Fallo en la detección de fallas: {str(e)}", 'fault_detection', 2
+            )
 
     def _create_error_result(self, error_msg: str, analysis_type: str, level: int = 0) -> AnalysisResult:
         """Crear resultado de error para detección de fallas"""
