@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Any
 import time
 from functools import wraps
 import joblib # Añadir esta importación
-from pathlib import P
+from pathlib import Path
 
 from flask_cors import cross_origin
 
