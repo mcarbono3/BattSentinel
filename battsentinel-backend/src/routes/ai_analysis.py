@@ -26,6 +26,8 @@ from flask_cors import cross_origin
 import sys
 import os
 
+from sklearn.preprocessing import StandardScaler
+
 # Importar modelos mejorados
 from src.models.battery import db, Battery, BatteryData, AnalysisResult as DBAnalysisResult # Renombrar para evitar conflicto
 # Asumiendo que AnalysisResult en ai_models es el dataclass de src.models.schemas
