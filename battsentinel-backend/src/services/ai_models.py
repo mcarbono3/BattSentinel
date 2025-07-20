@@ -911,7 +911,7 @@ class FaultDetectionModel:
         except Exception as e:
             logger.error(f"Error entrenando modelos de detección de fallas: {str(e)}")
 
-    def predict_fault(self, data: pd.DataFrame, battery_metadata: Optional[Any] = None) -> Any: # Cambiado Any por AnalysisResult
+    def predict_fault(self, data: pd.DataFrame, level: int, battery_metadata: Optional[Any] = None) -> Any: # Cambiado Any por AnalysisResult
         """
         Realiza una predicción robusta y eficiente de fallas de la batería.
         Este método integra preprocesamiento, detección de anomalías (Isolation Forest)
