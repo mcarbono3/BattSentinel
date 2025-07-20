@@ -520,9 +520,9 @@ def execute_fault_detection(df: pd.DataFrame, model: FaultDetectionModel,
             predictions={},
             confidence=0.0,
             explanation={
-                method=f"fault_detection_level_{level}",
-                summary=f"Error en detección de fallas: {str(e)}"
-            ),
+                "method": f"fault_detection_level_{level}",
+                "summary": f"Error en detección de fallas: {str(e)}"
+            },
             metadata=AIAnalysisResultMetadata(level=level, models_used=[], processing_time_ms=0.0, data_points=len(df))
         )
 
