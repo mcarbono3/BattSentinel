@@ -780,7 +780,87 @@ class FaultDetectionModel:
             logger.info("Modelos tradicionales de ML inicializados correctamente")
         except Exception as e:
             logger.error(f"Error inicializando modelos tradicionales: {str(e)}")
+            
+    def fit(self, training_data: pd.DataFrame, training_labels: Optional[pd.Series] = None):
+        """
+        Entrena el escalador y los modelos de detección de fallas con datos históricos.
 
+        Args:
+            training_data (pd.DataFrame): DataFrame con los datos de telemetría históricos
+                                          para entrenar el escalador y los modelos.
+            training_labels (Optional[pd.Series]): Etiquetas de fallas correspondientes
+                                                   a training_data para modelos supervisados.
+        """
+        if training_data.empty:
+            logger.warning("No se proporcionaron datos de entrenamiento al método fit().")
+            return
+
+        logger.info("Iniciando el entrenamiento (fit) de los modelos de detección de fallas.")
+        
+        try:
+            # 1. Preparar datos de entrenamiento
+            df_processed_train = self.preprocessor.prepare_features(training_data.copy())
+            features_to_fit = [col for col in self.feature_columns if col in df_processed_train.columns]
+            
+            if not features_to_fit:
+                logger.error("No se encontraron columnas de características válidas en los datos de entrenamiento para el fit del escalador.")
+                return
+
+            X_train = df_processed_train[features_to_fit]
+
+            # 2. Entrenar (fit) el StandardScaler
+            if self.scaler:
+                self.scaler.fit(X_train)
+                logger.info("StandardScaler entrenado exitosamente.")
+            else:
+                logger.warning("StandardScaler no inicializado en __init__; no se pudo entrenar.")
+
+            X_train_scaled = self.scaler.transform(X_train)
+
+            # 3. Entrenar (fit) el FeatureSelector
+            if self.feature_selector and training_labels is not None and not training_labels.empty:
+                # Asegurarse de que las etiquetas coincidan con los datos
+                if len(X_train_scaled) == len(training_labels):
+                    self.feature_selector.fit(X_train_scaled, training_labels)
+                    logger.info("FeatureSelector entrenado exitosamente.")
+                else:
+                    logger.warning("Longitud de datos y etiquetas de entrenamiento no coinciden para FeatureSelector.")
+            elif self.feature_selector:
+                logger.warning("No se proporcionaron etiquetas de entrenamiento para el FeatureSelector; no se entrenará.")
+            
+            # Aplicar la transformación de selección de características para el entrenamiento de modelos
+            if self.feature_selector and hasattr(self.feature_selector, 'transform') and hasattr(self.feature_selector, 'scores_') and self.feature_selector.scores_ is not None:
+                X_train_final_features = self.feature_selector.transform(X_train_scaled)
+            else:
+                X_train_final_features = X_train_scaled
+                if self.feature_selector:
+                    logger.warning("Feature selector no entrenado o scores no disponibles. Usando todas las características escaladas para el entrenamiento de modelos.")
+
+            # 4. Entrenar (fit) los modelos de ML
+            if self.isolation_forest:
+                self.isolation_forest.fit(X_train_final_features)
+                logger.info("IsolationForest entrenado exitosamente.")
+            else:
+                logger.warning("IsolationForest no inicializado; no se pudo entrenar.")
+
+            if self.random_forest and training_labels is not None and not training_labels.empty:
+                if len(X_train_final_features) == len(training_labels):
+                    self.random_forest.fit(X_train_final_features, training_labels)
+                    logger.info("RandomForestClassifier entrenado exitosamente.")
+                else:
+                    logger.warning("Longitud de datos y etiquetas de entrenamiento no coinciden para RandomForestClassifier.")
+            elif self.random_forest:
+                logger.warning("No se proporcionaron etiquetas de entrenamiento para RandomForestClassifier; no se entrenará.")
+
+            # Aquí se incluiría la lógica para entrenar modelos DL (LSTM, GRU, etc.)
+            # Por ejemplo: self._build_lstm_model(X_train_scaled.shape[1]), luego model.fit(...)
+            # Esto requeriría que las etiquetas o targets sean apropiados para cada modelo DL.
+            
+            logger.info("Entrenamiento (fit) de los modelos completado.")
+
+        except Exception as e:
+            logger.error(f"Error durante el proceso de entrenamiento (fit) de los modelos: {str(e)}", exc_info=True)    
+    
     def _build_lstm_model(self, input_shape: tuple, num_classes: int) -> Optional[tf.keras.Model]:
         """Construir modelo LSTM para detección de fallas"""
         if not TENSORFLOW_AVAILABLE: raise ImportError("TensorFlow no está disponible para modelos LSTM")
