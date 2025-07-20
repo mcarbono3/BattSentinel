@@ -484,10 +484,11 @@ def analyze_battery(battery_id: int):
 # Estas funciones envuelven las llamadas a los modelos de IA y manejan sus errores.
 # Retornan objetos AIAnalysisResult.
 
-def execute_continuous_monitoring(battery_id: int, df: pd.DataFrame, engine: ContinuousMonitoringEngine,
-                                 metadata: Optional[BatteryMetadata], level: int, include_explanation: bool) -> AIAnalysisResult:
+def execute_continuous_monitoring(battery_id: int, df: pd.DataFrame, engine: 'ContinuousMonitoringEngine',
+                                  metadata: Optional['BatteryMetadata'], level: int, include_explanation: bool) -> 'AIAnalysisResult':
     """Ejecuta el monitoreo continuo para un DataFrame de datos."""
     try:
+        # Aquí se asume que 'engine' tiene el método 'run_monitoring'
         result = engine.run_monitoring(df, metadata, level=level)
         return result
     except Exception as e:
@@ -498,25 +499,28 @@ def execute_continuous_monitoring(battery_id: int, df: pd.DataFrame, engine: Con
             error=str(e),
             predictions={},
             confidence=0.0,
-            explanation={
-                "method": f"fault_detection_level_{level}",
-                "summary": f"Error en detección de fallas: {str(e)}"
-            },
-            metadata={ # <--- CAMBIO AQUÍ: Ahora es un diccionario
-                'level': level,
-                'models_used': [],
-                'processing_time_ms': 0.0,
-                'data_points': len(df)
-            }
-        )
+            explanation={
+                "method": f"fault_detection_level_{level}",
+                "summary": f"Error en detección de fallas: {str(e)}"
+            },
+            # Ya corregido para ser un diccionario
+            metadata={
+                'level': level,
+                'models_used': [],
+                'processing_time_ms': 0.0,
+                'data_points': len(df)
+            }
+        )
 
-def execute_fault_detection(df: pd.DataFrame, model: FaultDetectionModel,
-                           level: int, metadata: Optional[BatteryMetadata]) -> AIAnalysisResult:
+def execute_fault_detection(df: pd.DataFrame, model: 'FaultDetectionModel', # Se usa str para forward ref si FaultDetectionModel está en otro lugar
+                            level: int, metadata: Optional['BatteryMetadata']) -> 'AIAnalysisResult':
     """Ejecuta la detección de fallas para un DataFrame de datos."""
     try:
+        # Aquí se asume que 'model' tiene el método 'predict_fault'
         result = model.predict_fault(df, level=level, battery_metadata=metadata)
         return result
     except Exception as e:
+        # Asegúrate de que 'logger' esté definido y sea accesible
         logger.error(f"Error en ejecución de detección de fallas (nivel {level}): {str(e)}", exc_info=True)
         return AIAnalysisResult(
             analysis_type='fault_detection',
@@ -528,7 +532,13 @@ def execute_fault_detection(df: pd.DataFrame, model: FaultDetectionModel,
                 "method": f"fault_detection_level_{level}",
                 "summary": f"Error en detección de fallas: {str(e)}"
             },
-            metadata=AIAnalysisResultMetadata(level=level, models_used=[], processing_time_ms=0.0, data_points=len(df))
+            # Corregido para ser un diccionario, no una clase no definida
+            metadata={
+                'level': level,
+                'models_used': [],
+                'processing_time_ms': 0.0,
+                'data_points': len(df)
+            }
         )
 
 def execute_health_prediction(df: pd.DataFrame, model: HealthPredictionModel,
