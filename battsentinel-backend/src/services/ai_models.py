@@ -722,7 +722,7 @@ class CUSUMControlChart:
 
 class FaultDetectionModel:
     """Modelo de detección de fallas mejorado con algoritmos ML/DL avanzados"""
-    def __init__(self):
+    def __init__(self, models_dir: Union[str, Path] = "trained_models"):
         self.continuous_engine = ContinuousMonitoringEngine()
         self.preprocessor = DataPreprocessor()
         self.isolation_forest = None
@@ -733,7 +733,7 @@ class FaultDetectionModel:
         self.gru_model = None
         self.tcn_model = None
         self.autoencoder = None
-        self.scaler = StandardScaler()
+        self.scaler = None
         self.robust_scaler = RobustScaler()
         self.feature_selector = None
         self.feature_columns = ['voltage', 'current', 'temperature', 'soc', 'soh', 'internal_resistance']
@@ -762,6 +762,7 @@ class FaultDetectionModel:
             'tcn': {'filters': 64, 'kernel_size': 3, 'dilations': [1, 2, 4, 8]},
             'autoencoder': {'hidden_layers': [64, 32], 'epochs': 20, 'batch_size': 32}
         }
+        self.models_dir = Path(models_dir)
         self._initialize_models()
 
     def _get_numerical_severity(self, severity_str: Optional[str]) -> int:
@@ -769,57 +770,94 @@ class FaultDetectionModel:
         return self.numerical_severity_levels.get(severity_str, self.numerical_severity_levels['none'])
         
     def _initialize_models(self):
-        """Inicializar todos los modelos de ML/DL"""
+        """
+        Intenta cargar la instancia completa de FaultDetectionModel.
+        Si falla, inicializa todos los componentes desde cero.
+        """
         try:
-            self.isolation_forest = IsolationForest(n_estimators=100, contamination=0.1, random_state=42, n_jobs=-1)
-            self.random_forest = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
-            self.svm_model = SVC(kernel='rbf', probability=True, random_state=42)
-            self.gradient_boosting = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1, max_depth=6, random_state=42)
-            self.feature_selector = SelectKBest(score_func=f_classif, k='all') # Ajustado a 'all' por ahora, se puede optimizar
+            self.models_dir.mkdir(parents=True, exist_ok=True) # Asegurarse de que el directorio exista
+            
+            loaded_instance = load_model_from_path(self.model_path)
+            
+            if loaded_instance is not None and isinstance(loaded_instance, FaultDetectionModel):
+                # Se cargó la instancia completa, copiar sus atributos
+                self.isolation_forest = loaded_instance.isolation_forest
+                self.random_forest = loaded_instance.random_forest
+                self.svm_model = loaded_instance.svm_model
+                self.gradient_boosting = loaded_instance.gradient_boosting
+                self.scaler = loaded_instance.scaler
+                self.feature_selector = loaded_instance.feature_selector
+                # Asegúrate de copiar también los modelos DL si los manejas así
+                self.lstm_model = loaded_instance.lstm_model if hasattr(loaded_instance, 'lstm_model') else None
+                self.gru_model = loaded_instance.gru_model if hasattr(loaded_instance, 'gru_model') else None
+                self.tcn_model = loaded_instance.tcn_model if hasattr(loaded_instance, 'tcn_model') else None
+                self.autoencoder = loaded_instance.autoencoder if hasattr(loaded_instance, 'autoencoder') else None
 
-            logger.info("Modelos tradicionales de ML inicializados correctamente")
+                logger.info(f"FaultDetectionModel (completo) cargado exitosamente desde {self.model_path}.")
+            else:
+                logger.warning(f"FaultDetectionModel pre-entrenado no encontrado en {self.model_path} o es de tipo incorrecto. Inicializando componentes nuevos.")
+                # Inicializar componentes si no se pudo cargar la instancia completa
+                self._initialize_new_components()
+
         except Exception as e:
-            logger.error(f"Error inicializando modelos tradicionales: {str(e)}")
+            logger.error(f"Error cargando FaultDetectionModel completo de {self.model_path}. Inicializando componentes nuevos: {str(e)}", exc_info=True)
+            self._initialize_new_components() #
+
+    def _initialize_new_components(self):
+        """Inicializa todos los componentes de ML/DL desde cero (sin entrenamiento)."""
+        self.scaler = StandardScaler()
+        self.isolation_forest = IsolationForest(n_estimators=100, contamination=0.1, random_state=42, n_jobs=-1)
+        self.random_forest = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
+        self.svm_model = SVC(kernel='rbf', probability=True, random_state=42)
+        self.gradient_boosting = GradientBoostingClassifier(n_estimators=100, learning_rate=0.05, max_depth=6, random_state=42)
+        self.feature_selector = SelectKBest(score_func=f_classif, k='all') # Ajusta k según necesidad
+
+        if TENSORFLOW_AVAILABLE:
+            # Aquí podrías construir los modelos DL, pero es mejor hacerlo en .train()
+            # si los input_shapes pueden variar o si los pesos no se cargan
+            self.lstm_model = None
+            self.gru_model = None
+            self.tcn_model = None
+            self.autoencoder = None
+        else:
+            self.lstm_model = None
+            self.gru_model = None
+            self.tcn_model = None
+            self.autoencoder = None
+        logger.info("Todos los componentes del FaultDetectionModel inicializados desde cero.")    
             
     def fit(self, training_data: pd.DataFrame, training_labels: Optional[pd.Series] = None):
         """
         Entrena el escalador y los modelos de detección de fallas con datos históricos.
-
-        Args:
-            training_data (pd.DataFrame): DataFrame con los datos de telemetría históricos
-                                          para entrenar el escalador y los modelos.
-            training_labels (Optional[pd.Series]): Etiquetas de fallas correspondientes
-                                                   a training_data para modelos supervisados.
+        Después de entrenar, guarda la instancia completa de FaultDetectionModel.
         """
         if training_data.empty:
-            logger.warning("No se proporcionaron datos de entrenamiento al método fit().")
+            logger.warning("No se proporcionaron datos de entrenamiento al método fit(). Saltando el entrenamiento de modelos y escalador.")
             return
 
         logger.info("Iniciando el entrenamiento (fit) de los modelos de detección de fallas.")
         
         try:
-            # 1. Preparar datos de entrenamiento
             df_processed_train = self.preprocessor.prepare_features(training_data.copy())
             features_to_fit = [col for col in self.feature_columns if col in df_processed_train.columns]
             
             if not features_to_fit:
-                logger.error("No se encontraron columnas de características válidas en los datos de entrenamiento para el fit del escalador.")
-                return
+                logger.error("No se encontraron columnas de características válidas en los datos de entrenamiento para el fit del escalador. Asegúrate de que los datos de entrada contengan las columnas esperadas.")
+                return 
 
             X_train = df_processed_train[features_to_fit]
 
-            # 2. Entrenar (fit) el StandardScaler
-            if self.scaler:
+            # Entrenar StandardScaler
+            if self.scaler is not None and len(X_train) > 0:
                 self.scaler.fit(X_train)
                 logger.info("StandardScaler entrenado exitosamente.")
             else:
-                logger.warning("StandardScaler no inicializado en __init__; no se pudo entrenar.")
-
+                logger.warning("StandardScaler no inicializado o no hay datos para entrenar.")
+            
             X_train_scaled = self.scaler.transform(X_train)
-
-            # 3. Entrenar (fit) el FeatureSelector
+            
+            # Entrenar FeatureSelector
             if self.feature_selector and training_labels is not None and not training_labels.empty:
-                # Asegurarse de que las etiquetas coincidan con los datos
                 if len(X_train_scaled) == len(training_labels):
                     self.feature_selector.fit(X_train_scaled, training_labels)
                     logger.info("FeatureSelector entrenado exitosamente.")
@@ -828,7 +866,6 @@ class FaultDetectionModel:
             elif self.feature_selector:
                 logger.warning("No se proporcionaron etiquetas de entrenamiento para el FeatureSelector; no se entrenará.")
             
-            # Aplicar la transformación de selección de características para el entrenamiento de modelos
             if self.feature_selector and hasattr(self.feature_selector, 'transform') and hasattr(self.feature_selector, 'scores_') and self.feature_selector.scores_ is not None:
                 X_train_final_features = self.feature_selector.transform(X_train_scaled)
             else:
@@ -836,12 +873,10 @@ class FaultDetectionModel:
                 if self.feature_selector:
                     logger.warning("Feature selector no entrenado o scores no disponibles. Usando todas las características escaladas para el entrenamiento de modelos.")
 
-            # 4. Entrenar (fit) los modelos de ML
+            # Entrenar modelos de ML
             if self.isolation_forest is not None:
                 self.isolation_forest.fit(X_train_final_features)
                 logger.info("IsolationForest entrenado exitosamente.")
-            else:
-                logger.warning("IsolationForest no inicializado; no se pudo entrenar.")
 
             if self.random_forest is not None and training_labels is not None and not training_labels.empty:
                 if len(X_train_final_features) == len(training_labels):
@@ -852,14 +887,58 @@ class FaultDetectionModel:
             elif self.random_forest:
                 logger.warning("No se proporcionaron etiquetas de entrenamiento para RandomForestClassifier; no se entrenará.")
 
-            # Aquí se incluiría la lógica para entrenar modelos DL (LSTM, GRU, etc.)
-            # Por ejemplo: self._build_lstm_model(X_train_scaled.shape[1]), luego model.fit(...)
-            # Esto requeriría que las etiquetas o targets sean apropiados para cada modelo DL.
+            if self.svm_model is not None and training_labels is not None and not training_labels.empty:
+                if len(X_train_final_features) == len(training_labels):
+                    self.svm_model.fit(X_train_final_features, training_labels)
+                    logger.info("SVM Model entrenado exitosamente.")
+                else:
+                    logger.warning("Longitud de datos y etiquetas de entrenamiento no coinciden para SVM Model.")
+            elif self.svm_model:
+                logger.warning("No se proporcionaron etiquetas de entrenamiento para SVM Model; no se entrenará.")
+            
+            if self.gradient_boosting is not None and training_labels is not None and not training_labels.empty:
+                if len(X_train_final_features) == len(training_labels):
+                    self.gradient_boosting.fit(X_train_final_features, training_labels)
+                    logger.info("GradientBoostingClassifier entrenado exitosamente.")
+                else:
+                    logger.warning("Longitud de datos y etiquetas de entrenamiento no coinciden para GradientBoostingClassifier.")
+            elif self.gradient_boosting:
+                logger.warning("No se proporcionaron etiquetas de entrenamiento para GradientBoostingClassifier; no se entrenará.")
+            
+            # Aquí se construirían y entrenarían los modelos DL si TENSORFLOW_AVAILABLE y si es el momento
+            # Asumiendo que el modelo DL se define y entrena aquí si no está cargado.
+            if TENSORFLOW_AVAILABLE and self.lstm_model is None: # Si no se cargó un modelo LSTM
+                # Esto es un ejemplo. La definición real dependerá de tus datos.
+                # Si el modelo debe entrenarse siempre, incluso si hay uno existente,
+                # quita 'if self.lstm_model is None'
+                num_features = X_train_final_features.shape[1]
+                X_train_reshaped_dl = X_train_final_features.reshape(X_train_final_features.shape[0], 1, num_features) # Asumiendo 1 timestep
+                
+                # Definir y compilar el modelo LSTM
+                self.lstm_model = Sequential([
+                    LSTM(self.model_config['lstm']['units'][0], activation='relu', 
+                         input_shape=(X_train_reshaped_dl.shape[1], X_train_reshaped_dl.shape[2]),
+                         return_sequences=False), # False si la salida es una única predicción
+                    Dropout(self.model_config['lstm']['dropout']),
+                    Dense(len(self.fault_types)) # Salida para clasificación multiclase
+                ])
+                self.lstm_model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+                logger.info("LSTM Model construido para entrenamiento.")
+
+            if TENSORFLOW_AVAILABLE and self.lstm_model is not None and training_labels is not None and not training_labels.empty:
+                # Asegurarse de que las etiquetas estén en formato numérico para DL
+                # Asume que training_labels ya está mapeado a ints (0-9)
+                num_features = X_train_final_features.shape[1]
+                X_train_reshaped_dl = X_train_final_features.reshape(X_train_final_features.shape[0], 1, num_features)
+                self.lstm_model.fit(X_train_reshaped_dl, training_labels, epochs=50, batch_size=32, verbose=0)
+                logger.info("LSTM Model entrenado exitosamente.")
             
             logger.info("Entrenamiento (fit) de los modelos completado.")
+            # Guardar la instancia COMPLETA de FaultDetectionModel después de entrenar
+            save_model_to_path(self, self.model_path)
 
         except Exception as e:
-            logger.error(f"Error durante el proceso de entrenamiento (fit) de los modelos: {str(e)}", exc_info=True)    
+            logger.error(f"Error durante el proceso de entrenamiento (fit) de los modelos: {str(e)}", exc_info=True)
     
     def _build_lstm_model(self, input_shape: tuple, num_classes: int) -> Optional[tf.keras.Model]:
         """Construir modelo LSTM para detección de fallas"""
@@ -991,26 +1070,19 @@ class FaultDetectionModel:
         except Exception as e:
             logger.error(f"Error entrenando modelos de detección de fallas: {str(e)}")
 
-    def predict_fault(self, data: pd.DataFrame, level: int, battery_metadata: Optional[Any] = None) -> Any: # Cambiado Any por AnalysisResult
+    def predict_fault(self, data: pd.DataFrame, level: int, battery_metadata: Optional[Any] = None) -> AnalysisResult:
         """
         Realiza una predicción robusta y eficiente de fallas de la batería.
-        Este método integra preprocesamiento, detección de anomalías (Isolation Forest)
-        y clasificación de fallas (Random Forest) para determinar la presencia y tipo
-        de fallas, así como su severidad.
         """
         start_time = datetime.now()
         
-        # Inicialización de resultados predeterminados
         predicted_fault_type = 'normal'
         assigned_severity_str = 'none'
         confidence_score = 0.0
         fault_detected = False
         
         try:
-            # 1. Preparación y validación de los datos de entrada
             df_processed = self.preprocessor.prepare_features(data.copy(), battery_metadata)
-            
-            # Asegurar que las columnas de características requeridas estén presentes
             features_to_predict = [col for col in self.feature_columns if col in df_processed.columns]
             
             if not features_to_predict:
@@ -1018,7 +1090,6 @@ class FaultDetectionModel:
                 logger.warning(error_msg)
                 return self.continuous_engine._create_error_result(error_msg, 'fault_detection', 2)
 
-            # Tomar la última lectura para análisis puntual de clasificación
             X = df_processed[features_to_predict].tail(1) 
 
             if X.empty:
@@ -1026,17 +1097,14 @@ class FaultDetectionModel:
                 logger.warning(error_msg)
                 return self.continuous_engine._create_error_result(error_msg, 'fault_detection', 2)
             
-            # 2. Escalado de características
-            # Es crucial que el scaler esté ya entrenado. En un flujo real, se entrena con datos de entrenamiento.
-            # Si no está entrenado, se podría intentar un fit provisional (NO recomendado para producción)
-            # o generar un error. Asumimos que `self.scaler` ya está `fit`.
-            if self.scaler is None or not hasattr(self.scaler, 'mean_'): 
-                logger.error("Scaler no inicializado o no entrenado. No se puede escalar.")
+            # Escalado de características
+            if self.scaler is None or not hasattr(self.scaler, 'mean_') or not hasattr(self.scaler, 'scale_'):
+                logger.error("Scaler no inicializado o no entrenado para predicción. Se requiere entrenamiento previo.")
                 return self.continuous_engine._create_error_result("Scaler no entrenado para predicción de fallas.", 'fault_detection', 2)
             
             X_scaled = self.scaler.transform(X)
             
-            # Aplicar selección de características si el selector está entrenado
+            # Aplicar selección de características
             if self.feature_selector and hasattr(self.feature_selector, 'transform') and hasattr(self.feature_selector, 'scores_') and self.feature_selector.scores_ is not None:
                 X_final_features = self.feature_selector.transform(X_scaled)
             else:
@@ -1044,71 +1112,96 @@ class FaultDetectionModel:
                 if self.feature_selector:
                     logger.warning("Selector de características no entrenado o scores no disponibles. Usando todas las características escaladas.")
 
-
-            # 3. Detección de Anomalías con Isolation Forest
+            # Detección de Anomalías con Isolation Forest
             if self.isolation_forest and hasattr(self.isolation_forest, 'predict'):
-                try:
-                    anomaly_prediction = self.isolation_forest.predict(X_final_features)
-                    if anomaly_prediction[0] == -1: # -1 indica una anomalía (potencial falla)
-                        logger.info("Anomalía detectada por Isolation Forest.")
-                        fault_detected = True
-                        predicted_fault_type = 'anomaly_detected' # Tipo de falla genérico para anomalías
-                        assigned_severity_str = 'medium' # Severidad inicial de una anomalía
-                except Exception as e:
-                    logger.error(f"Error durante la predicción con Isolation Forest: {e}", exc_info=True)
+                if not hasattr(self.isolation_forest, 'offset_'): # Comprueba si está entrenado
+                    logger.warning("Isolation Forest no entrenado. La detección de anomalías podría no ser precisa.")
+                else:
+                    try:
+                        anomaly_prediction = self.isolation_forest.predict(X_final_features)
+                        if anomaly_prediction[0] == -1:
+                            logger.info("Anomalía detectada por Isolation Forest.")
+                            fault_detected = True
+                            predicted_fault_type = 'anomaly_detected'
+                            assigned_severity_str = 'medium'
+                    except Exception as e:
+                        logger.error(f"Error durante la predicción con Isolation Forest: {e}", exc_info=True)
             else:
                 logger.warning("Isolation Forest no disponible o no entrenado.")
 
-            # 4. Clasificación de Fallas con Random Forest (o modelos de ML alternativos)
-            # Si un clasificador específico de fallas está entrenado, se prioriza para una detección más precisa.
+            # Clasificación de Fallas con Random Forest (o modelos de ML alternativos)
             if self.random_forest and hasattr(self.random_forest, 'predict'):
-                try:
-                    # El RandomForest intentará clasificar la falla, independientemente de la anomalía inicial
-                    fault_index_prediction = self.random_forest.predict(X_final_features)[0]
-                    specific_fault_type = self.fault_types.get(fault_index_prediction, 'unknown')
-                    
-                    if specific_fault_type != 'normal':
-                        # Si el Random Forest detecta una falla específica, la priorizamos
-                        predicted_fault_type = specific_fault_type
-                        assigned_severity_str = self.severity_mapping.get(predicted_fault_type, 'none')
-                        fault_detected = True # Confirmamos la detección de falla
+                if not hasattr(self.random_forest, 'classes_'): # Comprueba si está entrenado
+                    logger.warning("Random Forest no entrenado. La clasificación de fallas podría no ser precisa.")
+                else:
+                    try:
+                        fault_index_prediction = self.random_forest.predict(X_final_features)[0]
+                        specific_fault_type = self.fault_types.get(fault_index_prediction, 'unknown')
                         
-                        # Obtener la confianza de la predicción
-                        if hasattr(self.random_forest, 'predict_proba'):
-                            probabilities = self.random_forest.predict_proba(X_final_features)[0]
-                            confidence_score = float(np.max(probabilities))
-                        
-                        logger.info(f"Falla clasificada por Random Forest: {predicted_fault_type} (Confianza: {confidence_score:.2f})")
-                    else:
-                        logger.info("Random Forest no detectó fallas específicas (estado normal).")
+                        if specific_fault_type != 'normal':
+                            predicted_fault_type = specific_fault_type
+                            assigned_severity_str = self.severity_mapping.get(predicted_fault_type, 'none')
+                            fault_detected = True
+                            
+                            if hasattr(self.random_forest, 'predict_proba'):
+                                probabilities = self.random_forest.predict_proba(X_final_features)[0]
+                                confidence_score = float(np.max(probabilities))
+                            
+                            logger.info(f"Falla clasificada por Random Forest: {predicted_fault_type} (Confianza: {confidence_score:.2f})")
+                        else:
+                            logger.info("Random Forest no detectó fallas específicas (estado normal).")
 
-                except Exception as e:
-                    logger.error(f"Error durante la predicción con Random Forest: {e}", exc_info=True)
+                    except Exception as e:
+                        logger.error(f"Error durante la predicción con Random Forest: {e}", exc_info=True)
             else:
                 logger.warning("Random Forest u otro clasificador principal no disponible o no entrenado.")
 
-            # 5. Integración de Modelos de Deep Learning (para análisis más avanzados/refinamiento)
-            # Esta sección es un placeholder para futuras integraciones. Si tus modelos DL (LSTM, GRU, TCN, Autoencoder)
-            # están entrenados para clasificar o refinar fallas, su lógica iría aquí.
-            # Ejemplo (conceptual):
-            # if self.lstm_model and fault_detected: # Si ya hay una sospecha de falla
-            #     dl_prediction = self.lstm_model.predict(X_sequence_data) # Requiere datos en formato secuencia
-            #     # Lógica para interpretar la salida de DL y ajustar predicted_fault_type/severity
+            # Integración de Modelos de Deep Learning (si existen y están entrenados)
+            if TENSORFLOW_AVAILABLE and self.lstm_model is not None and hasattr(self.lstm_model, 'predict'):
+                 # Comprueba si el modelo tiene pesos (indica entrenamiento)
+                if self.lstm_model.weights:
+                    try:
+                        num_features = X_final_features.shape[1]
+                        X_reshaped_dl = X_final_features.reshape(X_final_features.shape[0], 1, num_features)
+                        dl_probabilities = self.lstm_model.predict(X_reshaped_dl)[0]
+                        dl_prediction_index = np.argmax(dl_probabilities)
+                        
+                        dl_fault_type = self.fault_types.get(dl_prediction_index, 'unknown')
+                        dl_confidence = float(np.max(dl_probabilities))
 
-            # 6. Conversión a severidad numérica y determinación final del estado
+                        # Lógica de fusión: Si DL detecta una falla con alta confianza, priorizarla
+                        if dl_fault_type != 'normal' and dl_confidence > confidence_score:
+                            predicted_fault_type = dl_fault_type
+                            assigned_severity_str = self.severity_mapping.get(predicted_fault_type, 'none')
+                            fault_detected = True
+                            confidence_score = dl_confidence
+                            logger.info(f"Falla refinada por LSTM: {predicted_fault_type} (Confianza DL: {dl_confidence:.2f})")
+                        elif dl_fault_type == 'normal' and not fault_detected:
+                            # Si DL dice normal y ML no ha detectado nada, mantener normal
+                            predicted_fault_type = 'normal'
+                            assigned_severity_str = 'none'
+                            fault_detected = False
+                            confidence_score = dl_confidence # Confianza de normalidad
+                    except Exception as e:
+                        logger.error(f"Error durante la predicción con LSTM: {e}", exc_info=True)
+                else:
+                    logger.warning("LSTM Model no entrenado (sin pesos).")
+            elif TENSORFLOW_AVAILABLE:
+                logger.warning("LSTM Model no disponible o no inicializado.")
+
+
+            # Conversión a severidad numérica y determinación final del estado
             numerical_severity = self._get_numerical_severity(assigned_severity_str)
             
-            # Asegurar que fault_detected sea True si la severidad es mayor que 'none'
             if numerical_severity > self.numerical_severity_levels['none']:
                 fault_detected = True
-            elif not fault_detected: # Si no se detectó nada por ningún modelo
+            elif not fault_detected:
                 predicted_fault_type = 'normal'
                 assigned_severity_str = 'none'
                 numerical_severity = self.numerical_severity_levels['none']
 
             processing_time = (datetime.now() - start_time).total_seconds()
             
-            # 7. Construcción del objeto AnalysisResult final
             return AnalysisResult(
                 analysis_type='fault_detection',
                 timestamp=datetime.now(timezone.utc),
@@ -1116,14 +1209,14 @@ class FaultDetectionModel:
                 predictions={
                     'fault_type_predicted': predicted_fault_type,
                     'severity_level_numeric': numerical_severity,
-                    'is_anomaly_detected_if': fault_detected # Indica si hubo alguna detección inicial de anomalía/falla
+                    'is_anomaly_detected_if': fault_detected
                 },
                 explanation={'summary': f'Análisis de fallas completado. Tipo de falla: {predicted_fault_type}. Severidad: {assigned_severity_str}.'},
                 metadata={
                     'processing_time_ms': float(processing_time * 1000),
                     'data_points': int(len(data)),
-                    'level': 2, # Análisis de Nivel 2 para detección de fallas
-                    'model_used': 'IsolationForest/RandomForest' # Adaptar según los modelos activos
+                    'level': 2,
+                    'model_used': 'IsolationForest/RandomForest' # Puedes añadir LSTM si se usó
                 },
                 model_version='2.0-fault_prediction-robust',
                 fault_detected=fault_detected,
@@ -1134,11 +1227,9 @@ class FaultDetectionModel:
 
         except Exception as e:
             logger.error(f"Error crítico e inesperado en predict_fault: {str(e)}", exc_info=True)
-            # Manejo de errores para asegurar que siempre se devuelva un resultado válido
             return self.continuous_engine._create_error_result(
                 f"Fallo en la detección de fallas: {str(e)}", 'fault_detection', 2
-            )
-
+                
     def _create_error_result(self, error_msg: str, analysis_type: str, level: int = 0) -> AnalysisResult:
         """Crear resultado de error para detección de fallas"""
         return AnalysisResult(
@@ -1150,6 +1241,28 @@ class FaultDetectionModel:
             metadata={'level': level, 'error': True},
             level_of_analysis=level
         )
+
+# Funciones auxiliares para cargadores de modelos (no modificadas sustancialmente)
+def load_model_from_path(model_path: Path):
+    """Carga un modelo guardado desde una ruta específica."""
+    try:
+        if model_path.exists():
+            return joblib.load(model_path)
+        else:
+            logger.warning(f"Modelo no encontrado en: {model_path}")
+            return None
+    except Exception as e:
+        logger.error(f"Error cargando modelo de {model_path}: {str(e)}")
+        return None
+
+def save_model_to_path(model: Any, model_path: Path):
+    """Guarda un modelo en una ruta específica."""
+    try:
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(model, model_path)
+        logger.info(f"Modelo guardado en: {model_path}")
+    except Exception as e:
+        logger.error(f"Error guardando modelo en {model_path}: {str(e)}")
 
 # =============================================================================================
 # MODELOS DE PREDICCIÓN DE SALUD (HEALTH PREDICTION) - Nivel 2 (usando ML/DL)
