@@ -837,13 +837,13 @@ class FaultDetectionModel:
                     logger.warning("Feature selector no entrenado o scores no disponibles. Usando todas las características escaladas para el entrenamiento de modelos.")
 
             # 4. Entrenar (fit) los modelos de ML
-            if self.isolation_forest:
+            if self.isolation_forest is not None:
                 self.isolation_forest.fit(X_train_final_features)
                 logger.info("IsolationForest entrenado exitosamente.")
             else:
                 logger.warning("IsolationForest no inicializado; no se pudo entrenar.")
 
-            if self.random_forest and training_labels is not None and not training_labels.empty:
+            if self.random_forest is not None and training_labels is not None and not training_labels.empty:
                 if len(X_train_final_features) == len(training_labels):
                     self.random_forest.fit(X_train_final_features, training_labels)
                     logger.info("RandomForestClassifier entrenado exitosamente.")
