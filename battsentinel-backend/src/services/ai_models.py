@@ -1229,6 +1229,7 @@ class FaultDetectionModel:
             logger.error(f"Error crítico e inesperado en predict_fault: {str(e)}", exc_info=True)
             return self.continuous_engine._create_error_result(
                 f"Fallo en la detección de fallas: {str(e)}", 'fault_detection', 2
+                )
                 
     def _create_error_result(self, error_msg: str, analysis_type: str, level: int = 0) -> AnalysisResult:
         """Crear resultado de error para detección de fallas"""
