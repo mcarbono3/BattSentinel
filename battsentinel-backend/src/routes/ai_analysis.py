@@ -628,11 +628,11 @@ def execute_health_prediction(df: pd.DataFrame, model: Optional['HealthPredictio
 # --- Funciones para Generación de Explicaciones y Resúmenes ---
 
 def generate_comprehensive_explanations(df: pd.DataFrame, results: Dict[str, AIAnalysisResult],
-                                        explainer: XAIExplainer, level: int) -> Dict[str, Any]:
-    """
-    Genera explicaciones comprensivas combinando resultados de diferentes modelos de IA.
-    Espera objetos AIAnalysisResult para acceder a sus atributos.
-    """
+                                        explainer: XAIExplainer, level: int) -> Dict[str, Any]:
+    """
+    Genera explicaciones comprensivas combinando resultados de diferentes modelos de IA.
+    Espera objetos AIAnalysisResult para acceder a sus atributos.
+    """
     explanations = {}
     try:
         fault_detection_result = results.get('fault_detection')
