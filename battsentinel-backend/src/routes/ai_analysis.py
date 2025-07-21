@@ -846,10 +846,10 @@ def calculate_overall_confidence(results_output_json: Dict[str, Any]) -> float:
 @cross_origin()
 @timing_decorator
 def continuous_monitoring(battery_id: int):
-    """
-    Endpoint específico para el monitoreo continuo de la batería (Nivel 1).
-    Puede generar datos de ejemplo si los datos reales son insuficientes.
-    """
+    """
+    Endpoint específico para el monitoreo continuo de la batería (Nivel 1).
+    Puede generar datos de ejemplo si los datos reales son insuficientes.
+    """
     try:
         battery = Battery.query.get_or_404(battery_id)
         battery_metadata = extract_battery_metadata(battery)
