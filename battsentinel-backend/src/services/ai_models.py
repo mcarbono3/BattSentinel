@@ -1156,43 +1156,97 @@ class FaultDetectionModel:
 # =============================================================================================
 
 class HealthPredictionModel:
-    """Modelo de predicción de salud (SOH y RUL) mejorado con DL"""
-    def __init__(self):
+    """Modelo de predicción de salud (SOH y RUL) mejorado con DL y carga desde archivo."""
+    def __init__(self, model_dir: Optional[str] = None):
         self.preprocessor = DataPreprocessor()
         self.soh_model = None
         self.rul_model = None
         self.scaler = StandardScaler()
+        self.model_dir = model_dir # Directorio donde se esperan los modelos guardados
+
+        # Columnas de características que espera el modelo (ajustar si es necesario)
+        self.feature_columns = ['voltage', 'current', 'temperature', 'soc', 'cycles', 'internal_resistance']
+        self.sequence_length = 50 # Longitud de secuencia esperada por los modelos LSTM/GRU
+
         self._initialize_models()
 
     def _initialize_models(self):
-        """Inicializar modelos de SOH y RUL"""
+        """
+        Inicializar o cargar modelos de SOH y RUL.
+        Primero intenta cargar los modelos si model_dir está especificado.
+        Si no, o si la carga falla, inicializa nuevos modelos (para entrenamiento).
+        """
         if TENSORFLOW_AVAILABLE:
-            try:
-                # Modelo LSTM para SOH (regresión)
-                self.soh_model = Sequential([
-                    LSTM(100, activation='relu', input_shape=(50, 5), return_sequences=True),
-                    Dropout(0.2),
-                    LSTM(50, activation='relu'),
-                    Dropout(0.2),
-                    Dense(1, activation='linear')
-                ])
-                self.soh_model.compile(optimizer='adam', loss='mse')
+            soh_loaded = False
+            rul_loaded = False
 
-                # Modelo GRU para RUL (regresión)
-                self.rul_model = Sequential([
-                    GRU(100, activation='relu', input_shape=(50, 5), return_sequences=True),
-                    Dropout(0.2),
-                    GRU(50, activation='relu'),
-                    Dropout(0.2),
-                    Dense(1, activation='linear')
-                ])
-                self.rul_model.compile(optimizer='adam', loss='mse')
-                logger.info("Modelos de predicción de salud (DL) inicializados.")
-            except Exception as e:
-                logger.error(f"Error inicializando modelos de salud DL: {str(e)}")
-                self.soh_model = None
-                self.rul_model = None
-        else:
+            if self.model_dir:
+                soh_model_path = os.path.join(self.model_dir, 'health_prediction_model') # Asumimos SOH es el principal
+                rul_model_path = os.path.join(self.model_dir, 'rul_prediction_model') # Si RUL se guarda por separado
+
+                # Intenta cargar el modelo SOH (health_prediction_model)
+                if os.path.exists(soh_model_path):
+                    try:
+                        self.soh_model = load_model(soh_model_path)
+                        logger.info(f"Modelo SOH cargado desde: {soh_model_path}")
+                        soh_loaded = True
+                    except Exception as e:
+                        logger.error(f"Error cargando modelo SOH desde {soh_model_path}: {str(e)}. Inicializando nuevo modelo.")
+                        self.soh_model = None # Reset en caso de fallo de carga
+                else:
+                    logger.warning(f"No se encontró modelo SOH en: {soh_model_path}. Inicializando nuevo modelo.")
+
+                # Intenta cargar el modelo RUL si existe por separado
+                if os.path.exists(rul_model_path):
+                    try:
+                        self.rul_model = load_model(rul_model_path)
+                        logger.info(f"Modelo RUL cargado desde: {rul_model_path}")
+                        rul_loaded = True
+                    except Exception as e:
+                        logger.error(f"Error cargando modelo RUL desde {rul_model_path}: {str(e)}. Inicializando nuevo modelo.")
+                        self.rul_model = None # Reset en caso de fallo de carga
+                else:
+                    logger.warning(f"No se encontró modelo RUL en: {rul_model_path}. Inicializando nuevo modelo.")
+            else:
+                logger.info("No se especificó model_dir. Inicializando nuevos modelos para entrenamiento.")
+
+            # Si no se pudo cargar un modelo, construir uno nuevo (para permitir el entrenamiento si es necesario)
+            if not soh_loaded:
+                try:
+                    self.soh_model = Sequential([
+                        LSTM(100, activation='relu', input_shape=(self.sequence_length, len(self.feature_columns)), return_sequences=True),
+                        Dropout(0.2),
+                        LSTM(50, activation='relu'),
+                        Dropout(0.2),
+                        Dense(1, activation='linear')
+                    ])
+                    self.soh_model.compile(optimizer='adam', loss='mse')
+                    logger.info("Nuevo modelo LSTM para SOH construido.")
+                except Exception as e:
+                    logger.error(f"Error construyendo modelo SOH: {str(e)}")
+                    self.soh_model = None
+
+            if not rul_loaded: # Si RUL no se cargó, construir uno nuevo
+                 try:
+                    self.rul_model = Sequential([
+                        GRU(100, activation='relu', input_shape=(self.sequence_length, len(self.feature_columns)), return_sequences=True),
+                        Dropout(0.2),
+                        GRU(50, activation='relu'),
+                        Dropout(0.2),
+                        Dense(1, activation='linear')
+                    ])
+                    self.rul_model.compile(optimizer='adam', loss='mse')
+                    logger.info("Nuevo modelo GRU para RUL construido.")
+                 except Exception as e:
+                    logger.error(f"Error construyendo modelo GRU para RUL: {str(e)}")
+                    self.rul_model = None
+
+            if self.soh_model and self.rul_model:
+                logger.info("Modelos de predicción de salud (DL) listos.")
+            else:
+                logger.error("No se pudieron inicializar o cargar ambos modelos de predicción de salud DL.")
+
+        else: # Si TensorFlow no está disponible, usa RandomForest
             logger.warning("TensorFlow no disponible, usando modelos de regresión tradicionales para salud.")
             self.soh_model = RandomForestRegressor(n_estimators=100, random_state=42)
             self.rul_model = RandomForestRegressor(n_estimators=100, random_state=42)
@@ -1202,10 +1256,17 @@ class HealthPredictionModel:
         """Entrenar modelos de predicción de salud"""
         if TENSORFLOW_AVAILABLE and self.soh_model and self.rul_model:
             try:
+                # Asegurar que las secuencias tienen la forma correcta (muestras, timesteps, features)
+                if X_sequences.ndim == 2:
+                    # Asumir que la segunda dimensión es el número de características si timesteps=1
+                    X_sequences_reshaped = X_sequences.reshape(X_sequences.shape[0], self.sequence_length, X_sequences.shape[1] // self.sequence_length)
+                else:
+                    X_sequences_reshaped = X_sequences # Ya tiene la forma correcta
+
                 # Entrenamiento LSTM para SOH
-                self.soh_model.fit(X_sequences, y_soh, epochs=10, batch_size=32, verbose=0)
+                self.soh_model.fit(X_sequences_reshaped, y_soh, epochs=10, batch_size=32, verbose=0)
                 # Entrenamiento GRU para RUL
-                self.rul_model.fit(X_sequences, y_rul, epochs=10, batch_size=32, verbose=0)
+                self.rul_model.fit(X_sequences_reshaped, y_rul, epochs=10, batch_size=32, verbose=0)
                 logger.info("Modelos de predicción de salud (DL) entrenados.")
             except Exception as e:
                 logger.error(f"Error entrenando modelos de salud DL: {str(e)}")
@@ -1226,21 +1287,27 @@ class HealthPredictionModel:
             df_processed = self.preprocessor.prepare_features(df, battery_metadata)
 
             # Asegurar suficientes datos para secuencia
-            sequence_length = 50 # Definir aquí o usar de config
-            if len(df_processed) < sequence_length:
-                raise ValueError(f"Datos insuficientes para crear secuencias (mínimo {sequence_length} puntos).")
+            # Usa self.sequence_length definido en __init__
+            if len(df_processed) < self.sequence_length:
+                raise ValueError(f"Datos insuficientes para crear secuencias (mínimo {self.sequence_length} puntos).")
 
             # Preparar la última secuencia para predicción
             # Seleccionar características clave para secuencias, asegurando que existan
-            feature_cols = [col for col in ['voltage', 'current', 'temperature', 'soc', 'soh'] if col in df_processed.columns]
-            if not feature_cols:
+            # Ajusta esto para que coincida con las 'feature_columns' usadas en train_models
+            feature_cols_for_pred = [col for col in self.feature_columns if col in df_processed.columns]
+            if not feature_cols_for_pred:
                 raise ValueError("No hay características válidas para secuencias en el DataFrame preprocesado.")
 
-            last_sequence_data = df_processed[feature_cols].tail(sequence_length).fillna(0)
+            last_sequence_data = df_processed[feature_cols_for_pred].tail(self.sequence_length).fillna(0)
 
-            # Si el scaler no ha sido ajustado, ajustarlo con los datos actuales
-            if not hasattr(self.scaler, 'mean_'):
-                self.scaler.fit(last_sequence_data)
+            # Si el scaler no ha sido ajustado, ajustarlo con los datos que se usarán.
+            # Idealmente, el scaler debería ser guardado y cargado junto con el modelo.
+            # Para esta mejora puntual, si no está ajustado, se ajusta con los datos de predicción.
+            # Considera guardar y cargar el scaler con joblib para producción.
+            if not hasattr(self.scaler, 'mean_') or len(self.scaler.mean_) != len(feature_cols_for_pred):
+                 logger.warning("Scaler no ajustado o dimensiones no coinciden. Ajustando con los datos de entrada actuales.")
+                 self.scaler.fit(df_processed[feature_cols_for_pred]) # Ajustar con todos los datos disponibles, no solo la última secuencia
+
 
             last_sequence_scaled = self.scaler.transform(last_sequence_data)
 
@@ -1294,6 +1361,8 @@ class HealthPredictionModel:
             logger.error(f"Error en predicción de salud: {str(e)}")
             return self._create_error_result(str(e), 'health_prediction', 2)
 
+    # Mantener _estimate_degradation_rate, _classify_health_status, _create_error_result
+    # sin cambios a menos que se solicite.
     def _estimate_degradation_rate(self, df: pd.DataFrame) -> float:
         """Estimar tasa de degradación mensual"""
         if 'soh' in df.columns and len(df) > 10:
