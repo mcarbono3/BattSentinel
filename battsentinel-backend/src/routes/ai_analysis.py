@@ -33,7 +33,7 @@ print("DEBUG: Directorio de trabajo actual:", os.getcwd())
 from sklearn.preprocessing import StandardScaler
 
 # Importar modelos mejorados
-from src.models.battery import db, Battery, BatteryData, AnalysisResult as DBAnalysisResult # Renombrar para evitar conflicto
+from ..services.ai_models import db, Battery, BatteryData, AnalysisResult as DBAnalysisResult # Renombrar para evitar conflicto
 # Asumiendo que AnalysisResult en ai_models es el dataclass de src.models.schemas
 from src.services.ai_models import (
     FaultDetectionModel,
