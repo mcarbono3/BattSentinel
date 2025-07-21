@@ -26,12 +26,6 @@ from flask_cors import cross_origin
 import sys
 import os
 
-project_root = Path(__file__).resolve().parents[2] # Subir dos niveles desde 'ai_analysis.py'
-
-# Añadir el project_root al sys.path para importaciones absolutas desde 'src'
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
-    
 print("DEBUG: PYTHONPATH al inicio:", os.environ.get('PYTHONPATH'))
 print("DEBUG: sys.path al inicio:", sys.path)
 print("DEBUG: Directorio de trabajo actual:", os.getcwd())
@@ -80,9 +74,9 @@ SYSTEM_CONFIG = {
 # --- Directorio donde se guardarán/cargarán los modelos ---
 # Debe ser accesible en tu entorno de Render.
 # Si estás en la raíz de tu proyecto, los modelos estarán en 'trained_models/'
-MODELS_DIR = project_root / 'src' / 'trained_models'
+MODELS_DIR = Path("src/trained_models")
 FAULT_MODEL_PATH = MODELS_DIR / 'fault_detection_model.joblib'
-
+HEALTH_MODEL_PATH = MODELS_DIR / 'health_prediction_model.joblib'
 
 def timing_decorator(func):
     """Decorador para medir tiempo de ejecución"""
@@ -114,20 +108,10 @@ def get_or_create_models():
     current_time = datetime.now()
 
     # Verificar si necesitamos actualizar el cache
-def get_or_create_models():
-    """Obtener o crear modelos en cache"""
-    global MODEL_CACHE
-
-    current_time = datetime.now()
-
-    # Verificar si necesitamos actualizar el cache
     if (MODEL_CACHE['last_updated'] is None or
         (current_time - MODEL_CACHE['last_updated']).seconds > SYSTEM_CONFIG['level1_cache_timeout']):
 
         logger.info("Inicializando/actualizando modelos en cache")
-        # Asegurarse de que el directorio de modelos exista antes de intentar cargar
-        MODELS_DIR.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Asegurado directorio de modelos: {MODELS_DIR}")
 
         try:
             MODEL_CACHE['continuous_engine'] = ContinuousMonitoringEngine()
@@ -142,27 +126,20 @@ def get_or_create_models():
                 MODEL_CACHE['fault_model'] = FaultDetectionModel()
                 # Considerar aquí un error crítico si el modelo pre-entrenado es obligatorio
 
-            # --- Cargar HealthPredictionModel pre-entrenado (¡MODIFICADO!) ---
-            # La clase HealthPredictionModel maneja su propia carga de sub-modelos SOH y RUL
-            # desde el directorio MODELS_DIR que le pasamos en su constructor.
-            try:
-                # Esto es lo que necesitas: simplemente instanciar HealthPredictionModel
-                # y ella se encargará de buscar 'health_prediction_model_soh' y 'health_prediction_model_rul'
-                # dentro de MODELS_DIR.
-                MODEL_CACHE['health_model'] = HealthPredictionModel(model_dir=str(MODELS_DIR))
-                logger.info("HealthPredictionModel inicializado (intentará cargar modelos SOH/RUL).")
-                # Aquí puedes añadir una verificación adicional si los sub-modelos se cargaron.
-                if MODEL_CACHE['health_model'].soh_model is None or MODEL_CACHE['health_model'].rul_model is None:
-                    logger.warning("HealthPredictionModel inicializado pero no pudo cargar ambos sub-modelos SOH/RUL. Revise logs de ai_models.")
-            except Exception as e:
-                logger.error(f"Error al inicializar HealthPredictionModel: {str(e)}. No se podrá realizar predicción de salud.")
-                MODEL_CACHE['health_model'] = None # Establecer a None si falla la inicialización/carga
+            # --- Cargar HealthPredictionModel pre-entrenado ---
+            if HEALTH_MODEL_PATH.exists():
+                logger.info(f"Cargando HealthPredictionModel desde: {HEALTH_MODEL_PATH}")
+                MODEL_CACHE['health_model'] = joblib.load(HEALTH_MODEL_PATH)
+            else:
+                logger.warning(f"HealthPredictionModel pre-entrenado no encontrado en {HEALTH_MODEL_PATH}. Inicializando uno nuevo (puede no estar entrenado).")
+                MODEL_CACHE['health_model'] = HealthPredictionModel()
+                # Considerar aquí un error crítico si el modelo pre-entrenado es obligatorio
             
             MODEL_CACHE['last_updated'] = current_time
 
             logger.info("Modelos inicializados correctamente")
         except Exception as e:
-            logger.error(f"Error inicializando modelos: {str(e)}", exc_info=True)
+            logger.error(f"Error inicializando modelos: {str(e)}")
             # Mantener modelos existentes si falló la actualización.
 
     return MODEL_CACHE
