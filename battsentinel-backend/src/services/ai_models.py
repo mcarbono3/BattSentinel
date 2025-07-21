@@ -776,6 +776,7 @@ class FaultDetectionModel:
         """
         try:
             self.models_dir.mkdir(parents=True, exist_ok=True) # Asegurarse de que el directorio exista
+            self.model_path = self.models_dir / "fault_detection_model.joblib" 
             
             loaded_instance = load_model_from_path(self.model_path)
             
