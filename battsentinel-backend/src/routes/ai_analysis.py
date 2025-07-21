@@ -26,6 +26,10 @@ from flask_cors import cross_origin
 import sys
 import os
 
+print("DEBUG: PYTHONPATH al inicio:", os.environ.get('PYTHONPATH'))
+print("DEBUG: sys.path al inicio:", sys.path)
+print("DEBUG: Directorio de trabajo actual:", os.getcwd())
+
 from sklearn.preprocessing import StandardScaler
 
 # Importar modelos mejorados
