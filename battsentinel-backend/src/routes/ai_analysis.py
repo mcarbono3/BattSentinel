@@ -70,7 +70,7 @@ SYSTEM_CONFIG = {
 # --- Directorio donde se guardarán/cargarán los modelos ---
 # Debe ser accesible en tu entorno de Render.
 # Si estás en la raíz de tu proyecto, los modelos estarán en 'trained_models/'
-MODELS_DIR = Path("trained_models")
+MODELS_DIR = Path("src/trained_models")
 FAULT_MODEL_PATH = MODELS_DIR / 'fault_detection_model.joblib'
 HEALTH_MODEL_PATH = MODELS_DIR / 'health_prediction_model.joblib'
 
@@ -484,113 +484,155 @@ def analyze_battery(battery_id: int):
 # Estas funciones envuelven las llamadas a los modelos de IA y manejan sus errores.
 # Retornan objetos AIAnalysisResult.
 
-def execute_continuous_monitoring(battery_id: int, df: pd.DataFrame, engine: 'ContinuousMonitoringEngine',
-                                  metadata: Optional['BatteryMetadata'], level: int, include_explanation: bool) -> 'AIAnalysisResult':
+def execute_fault_detection(df: pd.DataFrame, model: Optional['FaultDetectionModel'], # 'model' puede ser None
+                            level: int, metadata: Optional['BatteryMetadata']) -> AIAnalysisResult:
+    """Ejecuta la detección de fallas para un DataFrame de datos."""
+    try:
+        # 1. Manejar el caso donde el modelo es None (debido a errores de inicialización)
+        if model is None:
+            error_msg = "Modelo de detección de fallas no inicializado o cargado correctamente. No se puede ejecutar el análisis."
+            logger.error(error_msg)
+            # Retorna un AIAnalysisResult que indica un error de proceso, siguiendo la estructura de _create_error_result
+            return AIAnalysisResult(
+                analysis_type='fault_detection',
+                confidence_score=0.0,
+                predictions={'error': True, 'message': error_msg},
+                explanation={'method': f"fault_detection_level_{level}", 'summary': error_msg},
+                metadata={
+                    'level': level,
+                    'models_used': [],
+                    'processing_time_ms': 0.0,
+                    'data_points': len(df),
+                    'error': True # Indicador de error en metadata
+                },
+                # Estos campos se inicializarán a None por defecto si no se especifican,
+                # lo cual es deseable para un resultado de error de proceso.
+                # fault_detected=None, fault_type=None, severity=None, rul_prediction=None, level_of_analysis=level
+            )
+
+        # 2. Si el modelo existe, intentar ejecutar la predicción
+        result = model.predict_fault(df, level=level, battery_metadata=metadata)
+        return result
+    except Exception as e:
+        logger.error(f"Error en ejecución de detección de fallas (nivel {level}): {str(e)}", exc_info=True)
+        # 3. Manejar errores durante la ejecución de la predicción, siguiendo la estructura de _create_error_result
+        return AIAnalysisResult(
+            analysis_type='fault_detection',
+            confidence_score=0.0,
+            predictions={'error': True, 'message': str(e)},
+            explanation={
+                "method": f"fault_detection_level_{level}",
+                "summary": f"Error en ejecución de detección de fallas: {str(e)}"
+            },
+            metadata={
+                'level': level,
+                'models_used': [],
+                'processing_time_ms': 0.0,
+                'data_points': len(df),
+                'error': True # Indicador de error en metadata
+            },
+            # fault_detected=None, fault_type=None, severity=None, rul_prediction=None, level_of_analysis=level
+        )
+        
+def execute_continuous_monitoring(battery_id: int, df: pd.DataFrame, engine: Optional['ContinuousMonitoringEngine'], # 'engine' puede ser None
+                                  metadata: Optional['BatteryMetadata'], level: int, include_explanation: bool) -> AIAnalysisResult:
     """Ejecuta el monitoreo continuo para un DataFrame de datos."""
     try:
-        # Aquí se asume que 'engine' tiene el método 'run_monitoring'
+        # 1. Manejar el caso donde el engine es None
+        if engine is None:
+            error_msg = "Motor de monitoreo continuo no inicializado o cargado correctamente. No se puede ejecutar el análisis."
+            logger.error(error_msg)
+            return AIAnalysisResult(
+                analysis_type='continuous_monitoring',
+                confidence_score=0.0,
+                predictions={'error': True, 'message': error_msg},
+                explanation={'method': f"fault_detection_level_{level}", 'summary': error_msg},
+                metadata={
+                    'level': level,
+                    'models_used': [],
+                    'processing_time_ms': 0.0,
+                    'data_points': len(df),
+                    'error': True
+                },
+                # fault_detected=None, fault_type=None, severity=None, rul_prediction=None, level_of_analysis=level
+            )
+
+        # 2. Si el engine existe, intentar ejecutar el monitoreo
         result = engine.run_monitoring(df, metadata, level=level)
         return result
     except Exception as e:
         logger.error(f"Error en ejecución de monitoreo continuo (nivel {level}): {str(e)}", exc_info=True)
+        # 3. Manejar errores durante la ejecución, siguiendo la estructura de _create_error_result
         return AIAnalysisResult(
             analysis_type='continuous_monitoring',
-            status='error',
-            error=str(e),
-            predictions={},
-            confidence=0.0,
+            confidence_score=0.0,
+            predictions={'error': True, 'message': str(e)},
             explanation={
                 "method": f"fault_detection_level_{level}",
                 "summary": f"Error en detección de fallas: {str(e)}"
             },
-            # Ya corregido para ser un diccionario
             metadata={
                 'level': level,
                 'models_used': [],
                 'processing_time_ms': 0.0,
-                'data_points': len(df)
-            }
-        )
-
-def execute_fault_detection(df: pd.DataFrame, model: 'FaultDetectionModel', # Se usa str para forward ref si FaultDetectionModel está en otro lugar
-                            level: int, metadata: Optional['BatteryMetadata']) -> 'AIAnalysisResult':
-    """Ejecuta la detección de fallas para un DataFrame de datos."""
-    try:
-        # Aquí se asume que 'model' tiene el método 'predict_fault'
-        result = model.predict_fault(df, level=level, battery_metadata=metadata)
-        return result
-    except Exception as e:
-        # Asegúrate de que 'logger' esté definido y sea accesible
-        logger.error(f"Error en ejecución de detección de fallas (nivel {level}): {str(e)}", exc_info=True)
-        return AIAnalysisResult(
-            analysis_type='fault_detection',
-            status='error',
-            error=str(e),
-            predictions={},
-            confidence=0.0,
-            explanation={
-                "method": f"fault_detection_level_{level}",
-                "summary": f"Error en detección de fallas: {str(e)}"
+                'data_points': len(df),
+                'error': True
             },
-            # Corregido para ser un diccionario, no una clase no definida
-            metadata={
-                'level': level,
-                'models_used': [],
-                'processing_time_ms': 0.0,
-                'data_points': len(df)
-            }
+            # fault_detected=None, fault_type=None, severity=None, rul_prediction=None, level_of_analysis=level
         )
-
-def execute_health_prediction(df: pd.DataFrame, model: HealthPredictionModel,
-                             level: int, metadata: Optional[BatteryMetadata]) -> AIAnalysisResult:
+def execute_health_prediction(df: pd.DataFrame, model: Optional['HealthPredictionModel'], # Añadir Optional aquí
+                              level: int, metadata: Optional['BatteryMetadata']) -> AIAnalysisResult:
     """Ejecuta la predicción de salud para un DataFrame de datos."""
     try:
+        # 1. Manejar el caso donde el modelo es None (consistente con otras funciones)
+        if model is None:
+            error_msg = "Modelo de predicción de salud no inicializado o cargado correctamente. No se puede ejecutar el análisis."
+            logger.error(error_msg)
+            return AIAnalysisResult(
+                analysis_type='health_prediction',
+                confidence_score=0.0,
+                predictions={'error': True, 'message': error_msg},
+                explanation={'method': f"health_prediction_level_{level}", 'summary': error_msg},
+                metadata={
+                    'level': level,
+                    'models_used': [],
+                    'processing_time_ms': 0.0,
+                    'data_points': len(df),
+                    'error': True
+                },
+            )
+
+        # 2. Si el modelo existe, intentar ejecutar la predicción
         result = model.predict_health(df, level=level, battery_metadata=metadata)
         return result
     except Exception as e:
         logger.error(f"Error en ejecución de predicción de salud (nivel {level}): {str(e)}", exc_info=True)
+        # 3. Manejar errores durante la ejecución, consistente con otras funciones
         return AIAnalysisResult(
             analysis_type='health_prediction',
-            status='error',
-            error=str(e),
-            predictions={},
-            confidence=0.0,
-            explanation=AIAnalysisResultExplanation(
-                method=f"health_prediction_level_{level}",
-                summary=f"Error en predicción de salud: {str(e)}"
-            ),
-            metadata=AIAnalysisResultMetadata(level=level, models_used=[], processing_time_ms=0.0, data_points=len(df))
-        )
-
-def execute_anomaly_detection(df: pd.DataFrame, engine: ContinuousMonitoringEngine,
-                              metadata: Optional[BatteryMetadata], level: int) -> AIAnalysisResult:
-    """Ejecuta una detección de anomalías específica, reutilizando el motor de monitoreo continuo."""
-    try:
-        result = engine.run_monitoring(df, metadata, level=level) # Puede que necesites un método específico en engine para AD
-        return result
-    except Exception as e:
-        logger.error(f"Error en ejecución de detección de anomalías (nivel {level}): {str(e)}", exc_info=True)
-        return AIAnalysisResult(
-            analysis_type='anomaly_detection',
-            status='error',
-            error=str(e),
-            predictions={},
-            confidence=0.0,
-            explanation=AIAnalysisResultExplanation(
-                method=f"anomaly_detection_level_{level}",
-                summary=f"Error en detección de anomalías: {str(e)}"
-            ),
-            metadata=AIAnalysisResultMetadata(level=level, models_used=[], processing_time_ms=0.0, data_points=len(df))
+            confidence_score=0.0,
+            predictions={'error': True, 'message': str(e)},
+            explanation={
+                "method": f"health_prediction_level_{level}",
+                "summary": f"Error en predicción de salud: {str(e)}"
+            },
+            metadata={
+                'level': level,
+                'models_used': [],
+                'processing_time_ms': 0.0,
+                'data_points': len(df),
+                'error': True
+            },
         )
 
 # --- Funciones para Generación de Explicaciones y Resúmenes ---
 
 def generate_comprehensive_explanations(df: pd.DataFrame, results: Dict[str, AIAnalysisResult],
-                                        explainer: XAIExplainer, level: int) -> Dict[str, Any]:
-    """
-    Genera explicaciones comprensivas combinando resultados de diferentes modelos de IA.
-    Espera objetos AIAnalysisResult para acceder a sus atributos.
-    """
+                                        explainer: XAIExplainer, level: int) -> Dict[str, Any]:
+    """
+    Genera explicaciones comprensivas combinando resultados de diferentes modelos de IA.
+    Espera objetos AIAnalysisResult para acceder a sus atributos.
+    """
     explanations = {}
     try:
         fault_detection_result = results.get('fault_detection')
@@ -804,10 +846,10 @@ def calculate_overall_confidence(results_output_json: Dict[str, Any]) -> float:
 @cross_origin()
 @timing_decorator
 def continuous_monitoring(battery_id: int):
-    """
-    Endpoint específico para el monitoreo continuo de la batería (Nivel 1).
-    Puede generar datos de ejemplo si los datos reales son insuficientes.
-    """
+    """
+    Endpoint específico para el monitoreo continuo de la batería (Nivel 1).
+    Puede generar datos de ejemplo si los datos reales son insuficientes.
+    """
     try:
         battery = Battery.query.get_or_404(battery_id)
         battery_metadata = extract_battery_metadata(battery)
