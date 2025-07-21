@@ -1177,41 +1177,73 @@ class HealthPredictionModel:
         Primero intenta cargar los modelos si model_dir está especificado.
         Si no, o si la carga falla, inicializa nuevos modelos (para entrenamiento).
         """
-        if TENSORFLOW_AVAILABLE:
+        if TENSORFLOW_AVAILABLE: # Asume que esta variable existe y es True
             soh_loaded = False
             rul_loaded = False
+            soh_scaler_loaded = False
+            rul_scaler_loaded = False
 
             if self.model_dir:
-                soh_model_path = os.path.join(self.model_dir, 'health_prediction_model') # Asumimos SOH es el principal
-                rul_model_path = os.path.join(self.model_dir, 'rul_prediction_model') # Si RUL se guarda por separado
+                # Rutas CORRECTAS para los directorios de los modelos Keras (SavedModel)
+                soh_model_dir_path = os.path.join(self.model_dir, 'health_prediction_model_soh')
+                rul_model_dir_path = os.path.join(self.model_dir, 'health_prediction_model_rul')
 
-                # Intenta cargar el modelo SOH (health_prediction_model)
-                if os.path.exists(soh_model_path):
+                # Rutas CORRECTAS para los escaladores Joblib DENTRO de los directorios de los modelos Keras
+                soh_scaler_path = os.path.join(soh_model_dir_path, 'soh_scaler.joblib')
+                rul_scaler_path = os.path.join(rul_model_dir_path, 'rul_scaler.joblib')
+
+                # --- Cargar Modelo SOH (Keras SavedModel) ---
+                if os.path.exists(soh_model_dir_path) and os.path.isdir(soh_model_dir_path):
                     try:
-                        self.soh_model = load_model(soh_model_path)
-                        logger.info(f"Modelo SOH cargado desde: {soh_model_path}")
+                        self.soh_model = load_model(soh_model_dir_path)
+                        logger.info(f"Modelo SOH cargado exitosamente desde: {soh_model_dir_path}")
                         soh_loaded = True
                     except Exception as e:
-                        logger.error(f"Error cargando modelo SOH desde {soh_model_path}: {str(e)}. Inicializando nuevo modelo.")
+                        logger.error(f"Error cargando modelo SOH desde {soh_model_dir_path}: {str(e)}. Inicializando nuevo modelo.")
                         self.soh_model = None # Reset en caso de fallo de carga
                 else:
-                    logger.warning(f"No se encontró modelo SOH en: {soh_model_path}. Inicializando nuevo modelo.")
+                    logger.warning(f"No se encontró directorio de modelo SOH en: {soh_model_dir_path}. Inicializando nuevo modelo.")
 
-                # Intenta cargar el modelo RUL si existe por separado
-                if os.path.exists(rul_model_path):
+                # --- Cargar Escalador SOH ---
+                if os.path.exists(soh_scaler_path):
                     try:
-                        self.rul_model = load_model(rul_model_path)
-                        logger.info(f"Modelo RUL cargado desde: {rul_model_path}")
+                        self.soh_scaler = joblib.load(soh_scaler_path)
+                        logger.info(f"Escalador SOH cargado exitosamente desde: {soh_scaler_path}")
+                        soh_scaler_loaded = True
+                    except Exception as e:
+                        logger.error(f"Error cargando escalador SOH desde {soh_scaler_path}: {str(e)}. La predicción SOH puede no ser precisa.")
+                        self.soh_scaler = None
+                else:
+                    logger.warning(f"No se encontró escalador SOH en: {soh_scaler_path}. La predicción SOH puede no ser precisa.")
+
+                # --- Cargar Modelo RUL (Keras SavedModel) ---
+                if os.path.exists(rul_model_dir_path) and os.path.isdir(rul_model_dir_path):
+                    try:
+                        self.rul_model = load_model(rul_model_dir_path)
+                        logger.info(f"Modelo RUL cargado exitosamente desde: {rul_model_dir_path}")
                         rul_loaded = True
                     except Exception as e:
-                        logger.error(f"Error cargando modelo RUL desde {rul_model_path}: {str(e)}. Inicializando nuevo modelo.")
+                        logger.error(f"Error cargando modelo RUL desde {rul_model_dir_path}: {str(e)}. Inicializando nuevo modelo.")
                         self.rul_model = None # Reset en caso de fallo de carga
                 else:
-                    logger.warning(f"No se encontró modelo RUL en: {rul_model_path}. Inicializando nuevo modelo.")
+                    logger.warning(f"No se encontró directorio de modelo RUL en: {rul_model_dir_path}. Inicializando nuevo modelo.")
+
+                # --- Cargar Escalador RUL ---
+                if os.path.exists(rul_scaler_path):
+                    try:
+                        self.rul_scaler = joblib.load(rul_scaler_path)
+                        logger.info(f"Escalador RUL cargado exitosamente desde: {rul_scaler_path}")
+                        rul_scaler_loaded = True
+                    except Exception as e:
+                        logger.error(f"Error cargando escalador RUL desde {rul_scaler_path}: {str(e)}. La predicción RUL puede no ser precisa.")
+                        self.rul_scaler = None
+                else:
+                    logger.warning(f"No se encontró escalador RUL en: {rul_scaler_path}. La predicción RUL puede no ser precisa.")
+
             else:
                 logger.info("No se especificó model_dir. Inicializando nuevos modelos para entrenamiento.")
 
-            # Si no se pudo cargar un modelo, construir uno nuevo (para permitir el entrenamiento si es necesario)
+            # Si no se pudo cargar un modelo SOH, construir uno nuevo (para permitir el entrenamiento si es necesario)
             if not soh_loaded:
                 try:
                     self.soh_model = Sequential([
@@ -1227,8 +1259,9 @@ class HealthPredictionModel:
                     logger.error(f"Error construyendo modelo SOH: {str(e)}")
                     self.soh_model = None
 
-            if not rul_loaded: # Si RUL no se cargó, construir uno nuevo
-                 try:
+            # Si no se pudo cargar un modelo RUL, construir uno nuevo
+            if not rul_loaded:
+                try:
                     self.rul_model = Sequential([
                         GRU(100, activation='relu', input_shape=(self.sequence_length, len(self.feature_columns)), return_sequences=True),
                         Dropout(0.2),
@@ -1238,19 +1271,31 @@ class HealthPredictionModel:
                     ])
                     self.rul_model.compile(optimizer='adam', loss='mse')
                     logger.info("Nuevo modelo GRU para RUL construido.")
-                 except Exception as e:
+                except Exception as e:
                     logger.error(f"Error construyendo modelo GRU para RUL: {str(e)}")
                     self.rul_model = None
 
-            if self.soh_model and self.rul_model:
-                logger.info("Modelos de predicción de salud (DL) listos.")
+            if self.soh_model and self.rul_model and self.soh_scaler and self.rul_scaler:
+                logger.info("Modelos y escaladores de predicción de salud (DL) listos.")
             else:
-                logger.error("No se pudieron inicializar o cargar ambos modelos de predicción de salud DL.")
+                missing_components = []
+                if not self.soh_model: missing_components.append("Modelo SOH")
+                if not self.rul_model: missing_components.append("Modelo RUL")
+                if not self.soh_scaler: missing_components.append("Escalador SOH")
+                if not self.rul_scaler: missing_components.append("Escalador RUL")
+                logger.error(f"No se pudieron inicializar/cargar todos los componentes de predicción de salud DL. Faltan: {', '.join(missing_components)}.")
 
         else: # Si TensorFlow no está disponible, usa RandomForest
             logger.warning("TensorFlow no disponible, usando modelos de regresión tradicionales para salud.")
+            # Asegúrate de importar RandomForestRegressor si aún no lo has hecho
+            from sklearn.ensemble import RandomForestRegressor
+            from sklearn.preprocessing import StandardScaler # También se necesitará para RF
             self.soh_model = RandomForestRegressor(n_estimators=100, random_state=42)
             self.rul_model = RandomForestRegressor(n_estimators=100, random_state=42)
+            # Para los escaladores de RF, si se usan, deberías cargarlos de la misma manera
+            # o inicializarlos si no existen (y esto implica un reentrenamiento de escaladores)
+            self.soh_scaler = StandardScaler() # O cargar si existen
+            self.rul_scaler = StandardScaler() # O cargar si existen
             logger.info("Modelos de predicción de salud (RF) inicializados.")
 
     def train_models(self, X_sequences: np.ndarray, y_soh: np.ndarray, y_rul: np.ndarray):
