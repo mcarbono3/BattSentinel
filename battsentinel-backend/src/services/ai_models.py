@@ -722,7 +722,7 @@ class CUSUMControlChart:
 
 class FaultDetectionModel:
     """Modelo de detección de fallas mejorado con algoritmos ML/DL avanzados"""
-    def __init__(self, models_dir: Union[str, Path] = "trained_models"):
+    def __init__(self):
         self.continuous_engine = ContinuousMonitoringEngine()
         self.preprocessor = DataPreprocessor()
         self.isolation_forest = None
@@ -733,7 +733,7 @@ class FaultDetectionModel:
         self.gru_model = None
         self.tcn_model = None
         self.autoencoder = None
-        self.scaler = None
+        self.scaler = StandardScaler()
         self.robust_scaler = RobustScaler()
         self.feature_selector = None
         self.feature_columns = ['voltage', 'current', 'temperature', 'soc', 'soh', 'internal_resistance']
@@ -762,7 +762,6 @@ class FaultDetectionModel:
             'tcn': {'filters': 64, 'kernel_size': 3, 'dilations': [1, 2, 4, 8]},
             'autoencoder': {'hidden_layers': [64, 32], 'epochs': 20, 'batch_size': 32}
         }
-        self.models_dir = Path(models_dir)
         self._initialize_models()
 
     def _get_numerical_severity(self, severity_str: Optional[str]) -> int:
@@ -770,95 +769,57 @@ class FaultDetectionModel:
         return self.numerical_severity_levels.get(severity_str, self.numerical_severity_levels['none'])
         
     def _initialize_models(self):
-        """
-        Intenta cargar la instancia completa de FaultDetectionModel.
-        Si falla, inicializa todos los componentes desde cero.
-        """
+        """Inicializar todos los modelos de ML/DL"""
         try:
-            self.models_dir.mkdir(parents=True, exist_ok=True) # Asegurarse de que el directorio exista
-            self.model_path = self.models_dir / "fault_detection_model.joblib" 
-            
-            loaded_instance = load_model_from_path(self.model_path)
-            
-            if loaded_instance is not None and isinstance(loaded_instance, FaultDetectionModel):
-                # Se cargó la instancia completa, copiar sus atributos
-                self.isolation_forest = loaded_instance.isolation_forest
-                self.random_forest = loaded_instance.random_forest
-                self.svm_model = loaded_instance.svm_model
-                self.gradient_boosting = loaded_instance.gradient_boosting
-                self.scaler = loaded_instance.scaler
-                self.feature_selector = loaded_instance.feature_selector
-                # Asegúrate de copiar también los modelos DL si los manejas así
-                self.lstm_model = loaded_instance.lstm_model if hasattr(loaded_instance, 'lstm_model') else None
-                self.gru_model = loaded_instance.gru_model if hasattr(loaded_instance, 'gru_model') else None
-                self.tcn_model = loaded_instance.tcn_model if hasattr(loaded_instance, 'tcn_model') else None
-                self.autoencoder = loaded_instance.autoencoder if hasattr(loaded_instance, 'autoencoder') else None
+            self.isolation_forest = IsolationForest(n_estimators=100, contamination=0.1, random_state=42, n_jobs=-1)
+            self.random_forest = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
+            self.svm_model = SVC(kernel='rbf', probability=True, random_state=42)
+            self.gradient_boosting = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1, max_depth=6, random_state=42)
+            self.feature_selector = SelectKBest(score_func=f_classif, k='all') # Ajustado a 'all' por ahora, se puede optimizar
 
-                logger.info(f"FaultDetectionModel (completo) cargado exitosamente desde {self.model_path}.")
-            else:
-                logger.warning(f"FaultDetectionModel pre-entrenado no encontrado en {self.model_path} o es de tipo incorrecto. Inicializando componentes nuevos.")
-                # Inicializar componentes si no se pudo cargar la instancia completa
-                self._initialize_new_components()
-
+            logger.info("Modelos tradicionales de ML inicializados correctamente")
         except Exception as e:
-            logger.error(f"Error cargando FaultDetectionModel completo de {self.model_path}. Inicializando componentes nuevos: {str(e)}", exc_info=True)
-            self._initialize_new_components() #
-
-    def _initialize_new_components(self):
-        """Inicializa todos los componentes de ML/DL desde cero (sin entrenamiento)."""
-        self.scaler = StandardScaler()
-        self.isolation_forest = IsolationForest(n_estimators=100, contamination=0.1, random_state=42, n_jobs=-1)
-        self.random_forest = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
-        self.svm_model = SVC(kernel='rbf', probability=True, random_state=42)
-        self.gradient_boosting = GradientBoostingClassifier(n_estimators=100, learning_rate=0.05, max_depth=6, random_state=42)
-        self.feature_selector = SelectKBest(score_func=f_classif, k='all') # Ajusta k según necesidad
-
-        if TENSORFLOW_AVAILABLE:
-            # Aquí podrías construir los modelos DL, pero es mejor hacerlo en .train()
-            # si los input_shapes pueden variar o si los pesos no se cargan
-            self.lstm_model = None
-            self.gru_model = None
-            self.tcn_model = None
-            self.autoencoder = None
-        else:
-            self.lstm_model = None
-            self.gru_model = None
-            self.tcn_model = None
-            self.autoencoder = None
-        logger.info("Todos los componentes del FaultDetectionModel inicializados desde cero.")    
+            logger.error(f"Error inicializando modelos tradicionales: {str(e)}")
             
     def fit(self, training_data: pd.DataFrame, training_labels: Optional[pd.Series] = None):
         """
         Entrena el escalador y los modelos de detección de fallas con datos históricos.
-        Después de entrenar, guarda la instancia completa de FaultDetectionModel.
+
+        Args:
+            training_data (pd.DataFrame): DataFrame con los datos de telemetría históricos
+                                          para entrenar el escalador y los modelos.
+            training_labels (Optional[pd.Series]): Etiquetas de fallas correspondientes
+                                                   a training_data para modelos supervisados.
         """
         if training_data.empty:
-            logger.warning("No se proporcionaron datos de entrenamiento al método fit(). Saltando el entrenamiento de modelos y escalador.")
+            logger.warning("No se proporcionaron datos de entrenamiento al método fit().")
             return
 
         logger.info("Iniciando el entrenamiento (fit) de los modelos de detección de fallas.")
         
         try:
+            # 1. Preparar datos de entrenamiento
             df_processed_train = self.preprocessor.prepare_features(training_data.copy())
             features_to_fit = [col for col in self.feature_columns if col in df_processed_train.columns]
             
             if not features_to_fit:
-                logger.error("No se encontraron columnas de características válidas en los datos de entrenamiento para el fit del escalador. Asegúrate de que los datos de entrada contengan las columnas esperadas.")
-                return 
+                logger.error("No se encontraron columnas de características válidas en los datos de entrenamiento para el fit del escalador.")
+                return
 
             X_train = df_processed_train[features_to_fit]
 
-            # Entrenar StandardScaler
-            if self.scaler is not None and len(X_train) > 0:
+            # 2. Entrenar (fit) el StandardScaler
+            if self.scaler:
                 self.scaler.fit(X_train)
                 logger.info("StandardScaler entrenado exitosamente.")
             else:
-                logger.warning("StandardScaler no inicializado o no hay datos para entrenar.")
-            
+                logger.warning("StandardScaler no inicializado en __init__; no se pudo entrenar.")
+
             X_train_scaled = self.scaler.transform(X_train)
-            
-            # Entrenar FeatureSelector
+
+            # 3. Entrenar (fit) el FeatureSelector
             if self.feature_selector and training_labels is not None and not training_labels.empty:
+                # Asegurarse de que las etiquetas coincidan con los datos
                 if len(X_train_scaled) == len(training_labels):
                     self.feature_selector.fit(X_train_scaled, training_labels)
                     logger.info("FeatureSelector entrenado exitosamente.")
@@ -867,6 +828,7 @@ class FaultDetectionModel:
             elif self.feature_selector:
                 logger.warning("No se proporcionaron etiquetas de entrenamiento para el FeatureSelector; no se entrenará.")
             
+            # Aplicar la transformación de selección de características para el entrenamiento de modelos
             if self.feature_selector and hasattr(self.feature_selector, 'transform') and hasattr(self.feature_selector, 'scores_') and self.feature_selector.scores_ is not None:
                 X_train_final_features = self.feature_selector.transform(X_train_scaled)
             else:
@@ -874,10 +836,12 @@ class FaultDetectionModel:
                 if self.feature_selector:
                     logger.warning("Feature selector no entrenado o scores no disponibles. Usando todas las características escaladas para el entrenamiento de modelos.")
 
-            # Entrenar modelos de ML
+            # 4. Entrenar (fit) los modelos de ML
             if self.isolation_forest is not None:
                 self.isolation_forest.fit(X_train_final_features)
                 logger.info("IsolationForest entrenado exitosamente.")
+            else:
+                logger.warning("IsolationForest no inicializado; no se pudo entrenar.")
 
             if self.random_forest is not None and training_labels is not None and not training_labels.empty:
                 if len(X_train_final_features) == len(training_labels):
@@ -888,58 +852,14 @@ class FaultDetectionModel:
             elif self.random_forest:
                 logger.warning("No se proporcionaron etiquetas de entrenamiento para RandomForestClassifier; no se entrenará.")
 
-            if self.svm_model is not None and training_labels is not None and not training_labels.empty:
-                if len(X_train_final_features) == len(training_labels):
-                    self.svm_model.fit(X_train_final_features, training_labels)
-                    logger.info("SVM Model entrenado exitosamente.")
-                else:
-                    logger.warning("Longitud de datos y etiquetas de entrenamiento no coinciden para SVM Model.")
-            elif self.svm_model:
-                logger.warning("No se proporcionaron etiquetas de entrenamiento para SVM Model; no se entrenará.")
-            
-            if self.gradient_boosting is not None and training_labels is not None and not training_labels.empty:
-                if len(X_train_final_features) == len(training_labels):
-                    self.gradient_boosting.fit(X_train_final_features, training_labels)
-                    logger.info("GradientBoostingClassifier entrenado exitosamente.")
-                else:
-                    logger.warning("Longitud de datos y etiquetas de entrenamiento no coinciden para GradientBoostingClassifier.")
-            elif self.gradient_boosting:
-                logger.warning("No se proporcionaron etiquetas de entrenamiento para GradientBoostingClassifier; no se entrenará.")
-            
-            # Aquí se construirían y entrenarían los modelos DL si TENSORFLOW_AVAILABLE y si es el momento
-            # Asumiendo que el modelo DL se define y entrena aquí si no está cargado.
-            if TENSORFLOW_AVAILABLE and self.lstm_model is None: # Si no se cargó un modelo LSTM
-                # Esto es un ejemplo. La definición real dependerá de tus datos.
-                # Si el modelo debe entrenarse siempre, incluso si hay uno existente,
-                # quita 'if self.lstm_model is None'
-                num_features = X_train_final_features.shape[1]
-                X_train_reshaped_dl = X_train_final_features.reshape(X_train_final_features.shape[0], 1, num_features) # Asumiendo 1 timestep
-                
-                # Definir y compilar el modelo LSTM
-                self.lstm_model = Sequential([
-                    LSTM(self.model_config['lstm']['units'][0], activation='relu', 
-                         input_shape=(X_train_reshaped_dl.shape[1], X_train_reshaped_dl.shape[2]),
-                         return_sequences=False), # False si la salida es una única predicción
-                    Dropout(self.model_config['lstm']['dropout']),
-                    Dense(len(self.fault_types)) # Salida para clasificación multiclase
-                ])
-                self.lstm_model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-                logger.info("LSTM Model construido para entrenamiento.")
-
-            if TENSORFLOW_AVAILABLE and self.lstm_model is not None and training_labels is not None and not training_labels.empty:
-                # Asegurarse de que las etiquetas estén en formato numérico para DL
-                # Asume que training_labels ya está mapeado a ints (0-9)
-                num_features = X_train_final_features.shape[1]
-                X_train_reshaped_dl = X_train_final_features.reshape(X_train_final_features.shape[0], 1, num_features)
-                self.lstm_model.fit(X_train_reshaped_dl, training_labels, epochs=50, batch_size=32, verbose=0)
-                logger.info("LSTM Model entrenado exitosamente.")
+            # Aquí se incluiría la lógica para entrenar modelos DL (LSTM, GRU, etc.)
+            # Por ejemplo: self._build_lstm_model(X_train_scaled.shape[1]), luego model.fit(...)
+            # Esto requeriría que las etiquetas o targets sean apropiados para cada modelo DL.
             
             logger.info("Entrenamiento (fit) de los modelos completado.")
-            # Guardar la instancia COMPLETA de FaultDetectionModel después de entrenar
-            save_model_to_path(self, self.model_path)
 
         except Exception as e:
-            logger.error(f"Error durante el proceso de entrenamiento (fit) de los modelos: {str(e)}", exc_info=True)
+            logger.error(f"Error durante el proceso de entrenamiento (fit) de los modelos: {str(e)}", exc_info=True)    
     
     def _build_lstm_model(self, input_shape: tuple, num_classes: int) -> Optional[tf.keras.Model]:
         """Construir modelo LSTM para detección de fallas"""
@@ -1071,19 +991,26 @@ class FaultDetectionModel:
         except Exception as e:
             logger.error(f"Error entrenando modelos de detección de fallas: {str(e)}")
 
-    def predict_fault(self, data: pd.DataFrame, level: int, battery_metadata: Optional[Any] = None) -> AnalysisResult:
+    def predict_fault(self, data: pd.DataFrame, level: int, battery_metadata: Optional[Any] = None) -> Any: # Cambiado Any por AnalysisResult
         """
         Realiza una predicción robusta y eficiente de fallas de la batería.
+        Este método integra preprocesamiento, detección de anomalías (Isolation Forest)
+        y clasificación de fallas (Random Forest) para determinar la presencia y tipo
+        de fallas, así como su severidad.
         """
         start_time = datetime.now()
         
+        # Inicialización de resultados predeterminados
         predicted_fault_type = 'normal'
         assigned_severity_str = 'none'
         confidence_score = 0.0
         fault_detected = False
         
         try:
+            # 1. Preparación y validación de los datos de entrada
             df_processed = self.preprocessor.prepare_features(data.copy(), battery_metadata)
+            
+            # Asegurar que las columnas de características requeridas estén presentes
             features_to_predict = [col for col in self.feature_columns if col in df_processed.columns]
             
             if not features_to_predict:
@@ -1091,6 +1018,7 @@ class FaultDetectionModel:
                 logger.warning(error_msg)
                 return self.continuous_engine._create_error_result(error_msg, 'fault_detection', 2)
 
+            # Tomar la última lectura para análisis puntual de clasificación
             X = df_processed[features_to_predict].tail(1) 
 
             if X.empty:
@@ -1098,14 +1026,17 @@ class FaultDetectionModel:
                 logger.warning(error_msg)
                 return self.continuous_engine._create_error_result(error_msg, 'fault_detection', 2)
             
-            # Escalado de características
-            if self.scaler is None or not hasattr(self.scaler, 'mean_') or not hasattr(self.scaler, 'scale_'):
-                logger.error("Scaler no inicializado o no entrenado para predicción. Se requiere entrenamiento previo.")
+            # 2. Escalado de características
+            # Es crucial que el scaler esté ya entrenado. En un flujo real, se entrena con datos de entrenamiento.
+            # Si no está entrenado, se podría intentar un fit provisional (NO recomendado para producción)
+            # o generar un error. Asumimos que `self.scaler` ya está `fit`.
+            if self.scaler is None or not hasattr(self.scaler, 'mean_'): 
+                logger.error("Scaler no inicializado o no entrenado. No se puede escalar.")
                 return self.continuous_engine._create_error_result("Scaler no entrenado para predicción de fallas.", 'fault_detection', 2)
             
             X_scaled = self.scaler.transform(X)
             
-            # Aplicar selección de características
+            # Aplicar selección de características si el selector está entrenado
             if self.feature_selector and hasattr(self.feature_selector, 'transform') and hasattr(self.feature_selector, 'scores_') and self.feature_selector.scores_ is not None:
                 X_final_features = self.feature_selector.transform(X_scaled)
             else:
@@ -1113,96 +1044,71 @@ class FaultDetectionModel:
                 if self.feature_selector:
                     logger.warning("Selector de características no entrenado o scores no disponibles. Usando todas las características escaladas.")
 
-            # Detección de Anomalías con Isolation Forest
+
+            # 3. Detección de Anomalías con Isolation Forest
             if self.isolation_forest and hasattr(self.isolation_forest, 'predict'):
-                if not hasattr(self.isolation_forest, 'offset_'): # Comprueba si está entrenado
-                    logger.warning("Isolation Forest no entrenado. La detección de anomalías podría no ser precisa.")
-                else:
-                    try:
-                        anomaly_prediction = self.isolation_forest.predict(X_final_features)
-                        if anomaly_prediction[0] == -1:
-                            logger.info("Anomalía detectada por Isolation Forest.")
-                            fault_detected = True
-                            predicted_fault_type = 'anomaly_detected'
-                            assigned_severity_str = 'medium'
-                    except Exception as e:
-                        logger.error(f"Error durante la predicción con Isolation Forest: {e}", exc_info=True)
+                try:
+                    anomaly_prediction = self.isolation_forest.predict(X_final_features)
+                    if anomaly_prediction[0] == -1: # -1 indica una anomalía (potencial falla)
+                        logger.info("Anomalía detectada por Isolation Forest.")
+                        fault_detected = True
+                        predicted_fault_type = 'anomaly_detected' # Tipo de falla genérico para anomalías
+                        assigned_severity_str = 'medium' # Severidad inicial de una anomalía
+                except Exception as e:
+                    logger.error(f"Error durante la predicción con Isolation Forest: {e}", exc_info=True)
             else:
                 logger.warning("Isolation Forest no disponible o no entrenado.")
 
-            # Clasificación de Fallas con Random Forest (o modelos de ML alternativos)
+            # 4. Clasificación de Fallas con Random Forest (o modelos de ML alternativos)
+            # Si un clasificador específico de fallas está entrenado, se prioriza para una detección más precisa.
             if self.random_forest and hasattr(self.random_forest, 'predict'):
-                if not hasattr(self.random_forest, 'classes_'): # Comprueba si está entrenado
-                    logger.warning("Random Forest no entrenado. La clasificación de fallas podría no ser precisa.")
-                else:
-                    try:
-                        fault_index_prediction = self.random_forest.predict(X_final_features)[0]
-                        specific_fault_type = self.fault_types.get(fault_index_prediction, 'unknown')
+                try:
+                    # El RandomForest intentará clasificar la falla, independientemente de la anomalía inicial
+                    fault_index_prediction = self.random_forest.predict(X_final_features)[0]
+                    specific_fault_type = self.fault_types.get(fault_index_prediction, 'unknown')
+                    
+                    if specific_fault_type != 'normal':
+                        # Si el Random Forest detecta una falla específica, la priorizamos
+                        predicted_fault_type = specific_fault_type
+                        assigned_severity_str = self.severity_mapping.get(predicted_fault_type, 'none')
+                        fault_detected = True # Confirmamos la detección de falla
                         
-                        if specific_fault_type != 'normal':
-                            predicted_fault_type = specific_fault_type
-                            assigned_severity_str = self.severity_mapping.get(predicted_fault_type, 'none')
-                            fault_detected = True
-                            
-                            if hasattr(self.random_forest, 'predict_proba'):
-                                probabilities = self.random_forest.predict_proba(X_final_features)[0]
-                                confidence_score = float(np.max(probabilities))
-                            
-                            logger.info(f"Falla clasificada por Random Forest: {predicted_fault_type} (Confianza: {confidence_score:.2f})")
-                        else:
-                            logger.info("Random Forest no detectó fallas específicas (estado normal).")
+                        # Obtener la confianza de la predicción
+                        if hasattr(self.random_forest, 'predict_proba'):
+                            probabilities = self.random_forest.predict_proba(X_final_features)[0]
+                            confidence_score = float(np.max(probabilities))
+                        
+                        logger.info(f"Falla clasificada por Random Forest: {predicted_fault_type} (Confianza: {confidence_score:.2f})")
+                    else:
+                        logger.info("Random Forest no detectó fallas específicas (estado normal).")
 
-                    except Exception as e:
-                        logger.error(f"Error durante la predicción con Random Forest: {e}", exc_info=True)
+                except Exception as e:
+                    logger.error(f"Error durante la predicción con Random Forest: {e}", exc_info=True)
             else:
                 logger.warning("Random Forest u otro clasificador principal no disponible o no entrenado.")
 
-            # Integración de Modelos de Deep Learning (si existen y están entrenados)
-            if TENSORFLOW_AVAILABLE and self.lstm_model is not None and hasattr(self.lstm_model, 'predict'):
-                 # Comprueba si el modelo tiene pesos (indica entrenamiento)
-                if self.lstm_model.weights:
-                    try:
-                        num_features = X_final_features.shape[1]
-                        X_reshaped_dl = X_final_features.reshape(X_final_features.shape[0], 1, num_features)
-                        dl_probabilities = self.lstm_model.predict(X_reshaped_dl)[0]
-                        dl_prediction_index = np.argmax(dl_probabilities)
-                        
-                        dl_fault_type = self.fault_types.get(dl_prediction_index, 'unknown')
-                        dl_confidence = float(np.max(dl_probabilities))
+            # 5. Integración de Modelos de Deep Learning (para análisis más avanzados/refinamiento)
+            # Esta sección es un placeholder para futuras integraciones. Si tus modelos DL (LSTM, GRU, TCN, Autoencoder)
+            # están entrenados para clasificar o refinar fallas, su lógica iría aquí.
+            # Ejemplo (conceptual):
+            # if self.lstm_model and fault_detected: # Si ya hay una sospecha de falla
+            #     dl_prediction = self.lstm_model.predict(X_sequence_data) # Requiere datos en formato secuencia
+            #     # Lógica para interpretar la salida de DL y ajustar predicted_fault_type/severity
 
-                        # Lógica de fusión: Si DL detecta una falla con alta confianza, priorizarla
-                        if dl_fault_type != 'normal' and dl_confidence > confidence_score:
-                            predicted_fault_type = dl_fault_type
-                            assigned_severity_str = self.severity_mapping.get(predicted_fault_type, 'none')
-                            fault_detected = True
-                            confidence_score = dl_confidence
-                            logger.info(f"Falla refinada por LSTM: {predicted_fault_type} (Confianza DL: {dl_confidence:.2f})")
-                        elif dl_fault_type == 'normal' and not fault_detected:
-                            # Si DL dice normal y ML no ha detectado nada, mantener normal
-                            predicted_fault_type = 'normal'
-                            assigned_severity_str = 'none'
-                            fault_detected = False
-                            confidence_score = dl_confidence # Confianza de normalidad
-                    except Exception as e:
-                        logger.error(f"Error durante la predicción con LSTM: {e}", exc_info=True)
-                else:
-                    logger.warning("LSTM Model no entrenado (sin pesos).")
-            elif TENSORFLOW_AVAILABLE:
-                logger.warning("LSTM Model no disponible o no inicializado.")
-
-
-            # Conversión a severidad numérica y determinación final del estado
+            # 6. Conversión a severidad numérica y determinación final del estado
             numerical_severity = self._get_numerical_severity(assigned_severity_str)
             
+            # Asegurar que fault_detected sea True si la severidad es mayor que 'none'
             if numerical_severity > self.numerical_severity_levels['none']:
                 fault_detected = True
-            elif not fault_detected:
+            elif not fault_detected: # Si no se detectó nada por ningún modelo
                 predicted_fault_type = 'normal'
                 assigned_severity_str = 'none'
                 numerical_severity = self.numerical_severity_levels['none']
 
             processing_time = (datetime.now() - start_time).total_seconds()
             
+            # 7. Construcción del objeto AnalysisResult final
             return AnalysisResult(
                 analysis_type='fault_detection',
                 timestamp=datetime.now(timezone.utc),
@@ -1210,14 +1116,14 @@ class FaultDetectionModel:
                 predictions={
                     'fault_type_predicted': predicted_fault_type,
                     'severity_level_numeric': numerical_severity,
-                    'is_anomaly_detected_if': fault_detected
+                    'is_anomaly_detected_if': fault_detected # Indica si hubo alguna detección inicial de anomalía/falla
                 },
                 explanation={'summary': f'Análisis de fallas completado. Tipo de falla: {predicted_fault_type}. Severidad: {assigned_severity_str}.'},
                 metadata={
                     'processing_time_ms': float(processing_time * 1000),
                     'data_points': int(len(data)),
-                    'level': 2,
-                    'model_used': 'IsolationForest/RandomForest' # Puedes añadir LSTM si se usó
+                    'level': 2, # Análisis de Nivel 2 para detección de fallas
+                    'model_used': 'IsolationForest/RandomForest' # Adaptar según los modelos activos
                 },
                 model_version='2.0-fault_prediction-robust',
                 fault_detected=fault_detected,
@@ -1228,10 +1134,11 @@ class FaultDetectionModel:
 
         except Exception as e:
             logger.error(f"Error crítico e inesperado en predict_fault: {str(e)}", exc_info=True)
+            # Manejo de errores para asegurar que siempre se devuelva un resultado válido
             return self.continuous_engine._create_error_result(
                 f"Fallo en la detección de fallas: {str(e)}", 'fault_detection', 2
-                )
-                
+            )
+
     def _create_error_result(self, error_msg: str, analysis_type: str, level: int = 0) -> AnalysisResult:
         """Crear resultado de error para detección de fallas"""
         return AnalysisResult(
@@ -1244,218 +1151,73 @@ class FaultDetectionModel:
             level_of_analysis=level
         )
 
-# Funciones auxiliares para cargadores de modelos (no modificadas sustancialmente)
-def load_model_from_path(model_path: Path):
-    """Carga un modelo guardado desde una ruta específica."""
-    try:
-        if model_path.exists():
-            return joblib.load(model_path)
-        else:
-            logger.warning(f"Modelo no encontrado en: {model_path}")
-            return None
-    except Exception as e:
-        logger.error(f"Error cargando modelo de {model_path}: {str(e)}")
-        return None
-
-def save_model_to_path(model: Any, model_path: Path):
-    """Guarda un modelo en una ruta específica."""
-    try:
-        model_path.parent.mkdir(parents=True, exist_ok=True)
-        joblib.dump(model, model_path)
-        logger.info(f"Modelo guardado en: {model_path}")
-    except Exception as e:
-        logger.error(f"Error guardando modelo en {model_path}: {str(e)}")
-
 # =============================================================================================
 # MODELOS DE PREDICCIÓN DE SALUD (HEALTH PREDICTION) - Nivel 2 (usando ML/DL)
 # =============================================================================================
 
 class HealthPredictionModel:
-    """Modelo de predicción de salud (SOH y RUL) mejorado con DL y RF fallback."""
-    def __init__(self,
-                 model_dir: Optional[Path] = None, # Directorio donde se guardan/cargan los modelos
-                 dl_model_params: Optional[dict] = None,
-                 rf_model_params: Optional[dict] = None):
-        
+    """Modelo de predicción de salud (SOH y RUL) mejorado con DL"""
+    def __init__(self):
         self.preprocessor = DataPreprocessor()
-        self.soh_model = None # Modelo Keras o RF para SOH
-        self.rul_model = None # Modelo Keras o RF para RUL
-        self.scaler = StandardScaler() # Scaler que debe ser guardado/cargado
-
-        self.sequence_length = 50 # Longitud de la secuencia para modelos DL
-        # num_features debe ser dinámico o consistente con DataPreprocessor
-        # Por simplicidad, lo dejo hardcodeado, pero considera obtenerlo de los datos
-        self.num_features = 4 # 'voltage', 'current', 'temperature', 'soc'. 'soh' si es característica. AJUSTA ESTO SEGÚN TUS DATOS DE ENTRADA REALES.
-
-        self.model_dir = model_dir # Almacena el directorio para guardar/cargar
-
-        # Parámetros por defecto para DL
-        self.dl_model_params = dl_model_params if dl_model_params else {
-            'lstm_units_1': 100, 'lstm_units_2': 50,
-            'gru_units_1': 100, 'gru_units_2': 50,
-            'dropout_rate': 0.2, 'epochs': 10, 'batch_size': 32
-        }
-        # Parámetros por defecto para RF
-        self.rf_model_params = rf_model_params if rf_model_params else {
-            'n_estimators': 100, 'random_state': 42
-        }
-
-        # Intentar cargar modelos existentes primero
-        if self.model_dir:
-            self._load_models()
-        
-        # Si los modelos no se cargaron (ej. primera ejecución o archivos no existen), inicializarlos
-        if self.soh_model is None or self.rul_model is None:
-            self._initialize_models()
-
+        self.soh_model = None
+        self.rul_model = None
+        self.scaler = StandardScaler()
+        self._initialize_models()
 
     def _initialize_models(self):
-        """Inicializar modelos de SOH y RUL (nuevos o si no se cargaron)"""
+        """Inicializar modelos de SOH y RUL"""
         if TENSORFLOW_AVAILABLE:
             try:
+                # Modelo LSTM para SOH (regresión)
                 self.soh_model = Sequential([
-                    LSTM(self.dl_model_params['lstm_units_1'], activation='relu', 
-                         input_shape=(self.sequence_length, self.num_features), return_sequences=True),
-                    Dropout(self.dl_model_params['dropout_rate']),
-                    LSTM(self.dl_model_params['lstm_units_2'], activation='relu'),
-                    Dropout(self.dl_model_params['dropout_rate']),
+                    LSTM(100, activation='relu', input_shape=(50, 5), return_sequences=True),
+                    Dropout(0.2),
+                    LSTM(50, activation='relu'),
+                    Dropout(0.2),
                     Dense(1, activation='linear')
                 ])
                 self.soh_model.compile(optimizer='adam', loss='mse')
 
+                # Modelo GRU para RUL (regresión)
                 self.rul_model = Sequential([
-                    GRU(self.dl_model_params['gru_units_1'], activation='relu', 
-                        input_shape=(self.sequence_length, self.num_features), return_sequences=True),
-                    Dropout(self.dl_model_params['dropout_rate']),
-                    GRU(self.dl_model_params['gru_units_2'], activation='relu'),
-                    Dropout(self.dl_model_params['dropout_rate']),
+                    GRU(100, activation='relu', input_shape=(50, 5), return_sequences=True),
+                    Dropout(0.2),
+                    GRU(50, activation='relu'),
+                    Dropout(0.2),
                     Dense(1, activation='linear')
                 ])
                 self.rul_model.compile(optimizer='adam', loss='mse')
-                logger.info("Modelos de predicción de salud (DL) inicializados (nuevos).")
+                logger.info("Modelos de predicción de salud (DL) inicializados.")
             except Exception as e:
-                logger.error(f"Error inicializando modelos de salud DL: {str(e)}", exc_info=True)
+                logger.error(f"Error inicializando modelos de salud DL: {str(e)}")
                 self.soh_model = None
                 self.rul_model = None
         else:
             logger.warning("TensorFlow no disponible, usando modelos de regresión tradicionales para salud.")
-            self.soh_model = RandomForestRegressor(**self.rf_model_params)
-            self.rul_model = RandomForestRegressor(**self.rf_model_params)
-            logger.info("Modelos de predicción de salud (RF) inicializados (nuevos).")
-
-    def _load_models(self):
-        """Cargar modelos pre-entrenados y scaler desde el directorio."""
-        if self.model_dir is None:
-            logger.warning("No se proporcionó un directorio de modelos para cargar HealthPredictionModel.")
-            return
-
-        # Cargar Scaler
-        scaler_path = self.model_dir / 'health_prediction_scaler.joblib'
-        if scaler_path.exists():
-            try:
-                self.scaler = joblib.load(scaler_path)
-                logger.info(f"Scaler de HealthPredictionModel cargado desde: {scaler_path}")
-            except Exception as e:
-                logger.error(f"Error cargando scaler de HealthPredictionModel de {scaler_path}: {e}", exc_info=True)
-                self.scaler = StandardScaler() # Revertir a un nuevo scaler si hay error
-        else:
-            logger.warning(f"Scaler de HealthPredictionModel no encontrado en: {scaler_path}. Se usará un nuevo scaler.")
-            self.scaler = StandardScaler()
-
-        # Cargar modelos SOH y RUL
-        if TENSORFLOW_AVAILABLE:
-            soh_model_path = self.model_dir / 'soh_model.h5'
-            rul_model_path = self.model_dir / 'rul_model.h5'
-            if soh_model_path.exists() and rul_model_path.exists():
-                try:
-                    self.soh_model = load_model(soh_model_path) # Usar load_model de Keras/TF
-                    self.rul_model = load_model(rul_model_path)
-                    logger.info(f"Modelos de predicción de salud (DL) cargados desde: {self.model_dir}")
-                except Exception as e:
-                    logger.error(f"Error cargando modelos de salud DL de {self.model_dir}: {e}", exc_info=True)
-                    self.soh_model = None # Forzar reinicialización si la carga falla
-                    self.rul_model = None
-            else:
-                logger.warning(f"Modelos DL de HealthPredictionModel no encontrados en: {self.model_dir}.")
-        else: # Si TensorFlow no está disponible, cargar modelos RF
-            soh_model_path = self.model_dir / 'soh_model_rf.joblib' # Nombre para la versión RF
-            rul_model_path = self.model_dir / 'rul_model_rf.joblib' # Nombre para la versión RF
-            if soh_model_path.exists() and rul_model_path.exists():
-                try:
-                    self.soh_model = joblib.load(soh_model_path)
-                    self.rul_model = joblib.load(rul_model_path)
-                    logger.info(f"Modelos de predicción de salud (RF) cargados desde: {self.model_dir}")
-                except Exception as e:
-                    logger.error(f"Error cargando modelos de salud RF de {self.model_dir}: {e}", exc_info=True)
-                    self.soh_model = None # Forzar reinicialización si la carga falla
-                    self.rul_model = None
-            else:
-                logger.warning(f"Modelos RF de HealthPredictionModel no encontrados en: {self.model_dir}.")
-
-    def save_models(self):
-        """Guardar modelos entrenados y scaler en el directorio."""
-        if self.model_dir is None:
-            logger.warning("No se proporcionó un directorio de modelos para guardar HealthPredictionModel.")
-            return
-
-        # Guardar Scaler
-        scaler_path = self.model_dir / 'health_prediction_scaler.joblib'
-        try:
-            joblib.dump(self.scaler, scaler_path)
-            logger.info(f"Scaler de HealthPredictionModel guardado en: {scaler_path}")
-        except Exception as e:
-            logger.error(f"Error guardando scaler de HealthPredictionModel: {e}", exc_info=True)
-
-        # Guardar modelos SOH y RUL
-        if TENSORFLOW_AVAILABLE and self.soh_model and self.rul_model:
-            soh_model_path = self.model_dir / 'soh_model.h5'
-            rul_model_path = self.model_dir / 'rul_model.h5'
-            try:
-                self.soh_model.save(soh_model_path) # Usar .save() de Keras
-                self.rul_model.save(rul_model_path)
-                logger.info(f"Modelos de predicción de salud (DL) guardados en: {self.model_dir}")
-            except Exception as e:
-                logger.error(f"Error guardando modelos de salud DL: {e}", exc_info=True)
-        elif self.soh_model and self.rul_model: # Si se usan modelos RF
-            soh_model_path = self.model_dir / 'soh_model_rf.joblib'
-            rul_model_path = self.model_dir / 'rul_model_rf.joblib'
-            try:
-                joblib.dump(self.soh_model, soh_model_path)
-                joblib.dump(self.rul_model, rul_model_path)
-                logger.info(f"Modelos de predicción de salud (RF) guardados en: {self.model_dir}")
-            except Exception as e:
-                logger.error(f"Error guardando modelos de salud RF: {e}", exc_info=True)
-        else:
-            logger.warning("No hay modelos de SOH/RUL para guardar en HealthPredictionModel.")
+            self.soh_model = RandomForestRegressor(n_estimators=100, random_state=42)
+            self.rul_model = RandomForestRegressor(n_estimators=100, random_state=42)
+            logger.info("Modelos de predicción de salud (RF) inicializados.")
 
     def train_models(self, X_sequences: np.ndarray, y_soh: np.ndarray, y_rul: np.ndarray):
         """Entrenar modelos de predicción de salud"""
-        # Aplanar para el scaler, luego remodelar si es necesario para DL
-        original_shape = X_sequences.shape
-        X_flat_for_scaling = X_sequences.reshape(-1, X_sequences.shape[-1])
-        self.scaler.fit(X_flat_for_scaling) # Ajustar scaler una sola vez
-        X_scaled_flat = self.scaler.transform(X_flat_for_scaling)
-        
         if TENSORFLOW_AVAILABLE and self.soh_model and self.rul_model:
-            # Remodelar a 3D para DL
-            X_sequences_scaled = X_scaled_flat.reshape(original_shape)
             try:
-                self.soh_model.fit(X_sequences_scaled, y_soh, epochs=self.dl_model_params['epochs'], 
-                                   batch_size=self.dl_model_params['batch_size'], verbose=0)
-                self.rul_model.fit(X_sequences_scaled, y_rul, epochs=self.dl_model_params['epochs'], 
-                                   batch_size=self.dl_model_params['batch_size'], verbose=0)
+                # Entrenamiento LSTM para SOH
+                self.soh_model.fit(X_sequences, y_soh, epochs=10, batch_size=32, verbose=0)
+                # Entrenamiento GRU para RUL
+                self.rul_model.fit(X_sequences, y_rul, epochs=10, batch_size=32, verbose=0)
                 logger.info("Modelos de predicción de salud (DL) entrenados.")
             except Exception as e:
-                logger.error(f"Error entrenando modelos de salud DL. Error: {str(e)}", exc_info=True)
+                logger.error(f"Error entrenando modelos de salud DL: {str(e)}")
         else:
             try:
-                # Para modelos tradicionales, usar datos 2D
-                X_flat_for_rf = X_scaled_flat
-                self.soh_model.fit(X_flat_for_rf, y_soh)
-                self.rul_model.fit(X_flat_for_rf, y_rul)
+                # Para modelos tradicionales, aplanar secuencias
+                X_flat = X_sequences.reshape(X_sequences.shape[0], -1)
+                self.soh_model.fit(X_flat, y_soh)
+                self.rul_model.fit(X_flat, y_rul)
                 logger.info("Modelos de predicción de salud (RF) entrenados.")
             except Exception as e:
-                logger.error(f"Error entrenando modelos de salud RF. Error: {str(e)}", exc_info=True)
+                logger.error(f"Error entrenando modelos de salud RF: {str(e)}")
 
     def predict_health(self, df: pd.DataFrame, level: int = 2, battery_metadata: Optional[BatteryMetadata] = None) -> AnalysisResult:
         """Predecir SOH y RUL usando el modelo avanzado (Nivel 2)"""
@@ -1463,45 +1225,43 @@ class HealthPredictionModel:
         try:
             df_processed = self.preprocessor.prepare_features(df, battery_metadata)
 
-            # Asegurar que las columnas para el modelo son las esperadas y en el orden correcto
-            # Estas deben ser las mismas características usadas durante el entrenamiento.
-            expected_features = ['voltage', 'current', 'temperature', 'soc']
-            # Si 'soh' es una característica de entrada, añádela aquí
-            if 'soh' in df_processed.columns: # si 'soh' es una característica de entrada y no la etiqueta
-                expected_features.append('soh') 
-            
-            # Asegurar que df_processed contiene solo las columnas esperadas y en orden
-            df_for_prediction = df_processed[expected_features]
+            # Asegurar suficientes datos para secuencia
+            sequence_length = 50 # Definir aquí o usar de config
+            if len(df_processed) < sequence_length:
+                raise ValueError(f"Datos insuficientes para crear secuencias (mínimo {sequence_length} puntos).")
 
-            if len(df_for_prediction) < self.sequence_length:
-                raise ValueError(f"Datos insuficientes para crear secuencias (mínimo {self.sequence_length} puntos).")
+            # Preparar la última secuencia para predicción
+            # Seleccionar características clave para secuencias, asegurando que existan
+            feature_cols = [col for col in ['voltage', 'current', 'temperature', 'soc', 'soh'] if col in df_processed.columns]
+            if not feature_cols:
+                raise ValueError("No hay características válidas para secuencias en el DataFrame preprocesado.")
 
-            last_sequence_data = df_for_prediction.tail(self.sequence_length).fillna(0) # Usar solo las columnas esperadas
-            
-            # Asegurar que el scaler esté ajustado. Ya debería estarlo si los modelos se cargaron correctamente.
-            if not hasattr(self.scaler, 'mean_') or self.scaler.mean_ is None:
-                logger.warning("Scaler no ajustado al predecir. Esto indica un error de carga o entrenamiento. "
-                               "Ajustando con la secuencia actual (solo para evitar fallo).")
-                self.scaler.fit(last_sequence_data) # Ajustar sobre los datos 2D
+            last_sequence_data = df_processed[feature_cols].tail(sequence_length).fillna(0)
+
+            # Si el scaler no ha sido ajustado, ajustarlo con los datos actuales
+            if not hasattr(self.scaler, 'mean_'):
+                self.scaler.fit(last_sequence_data)
 
             last_sequence_scaled = self.scaler.transform(last_sequence_data)
+
+            # Añadir dimensión de lote para la predicción
+            X_predict = np.expand_dims(last_sequence_scaled, axis=0)
 
             predicted_soh = 0.0
             predicted_rul_days = 0.0
 
             if TENSORFLOW_AVAILABLE and self.soh_model and self.rul_model:
-                # Remodelar para Keras: [1, sequence_length, num_features]
-                X_predict_keras = last_sequence_scaled.reshape(1, self.sequence_length, self.num_features)
-                predicted_soh = self.soh_model.predict(X_predict_keras, verbose=0)[0][0]
-                predicted_rul_days = self.rul_model.predict(X_predict_keras, verbose=0)[0][0]
+                predicted_soh = self.soh_model.predict(X_predict, verbose=0)[0][0]
+                predicted_rul_days = self.rul_model.predict(X_predict, verbose=0)[0][0]
             else:
                 # Para modelos tradicionales, aplanar la secuencia
-                X_predict_flat_rf = last_sequence_scaled.reshape(1, -1) # Aplanar a [1, features*sequence_length]
-                predicted_soh = self.soh_model.predict(X_predict_flat_rf)[0]
-                predicted_rul_days = self.rul_model.predict(X_predict_flat_rf)[0]
+                X_predict_flat = X_predict.reshape(X_predict.shape[0], -1)
+                predicted_soh = self.soh_model.predict(X_predict_flat)[0]
+                predicted_rul_days = self.rul_model.predict(X_predict_flat)[0]
 
+            # Asegurar que los resultados son floats nativos de Python
             predicted_soh = float(np.clip(predicted_soh, 0, 100))
-            predicted_rul_days = float(np.clip(predicted_rul_days, 0, 3650))
+            predicted_rul_days = float(np.clip(predicted_rul_days, 0, 3650)) # RUL máximo 10 años
 
             health_status = self._classify_health_status(predicted_soh)
 
@@ -1510,7 +1270,7 @@ class HealthPredictionModel:
             return AnalysisResult(
                 analysis_type='health_prediction',
                 timestamp=datetime.now(timezone.utc),
-                confidence_score=0.75,
+                confidence_score=0.75, # Confianza por defecto o calculada
                 predictions={
                     'current_soh': predicted_soh,
                     'rul_days': predicted_rul_days,
@@ -1519,10 +1279,10 @@ class HealthPredictionModel:
                     'rul_history': [float(r) for r in df['rul_days'].dropna().tail(10).tolist()] if 'rul_days' in df.columns else [],
                     'timestamps': [ts.isoformat() for ts in df['timestamp'].dropna().tail(10).tolist()] if 'timestamp' in df.columns else []
                 },
-                explanation={},
+                explanation={}, # Será llenado por XAIExplainer
                 metadata={
-                    'processing_time_s': float(processing_time),
-                    'data_points': int(len(df)),
+                    'processing_time_s': float(processing_time), # Asegurar float
+                    'data_points': int(len(df)), # Asegurar int
                     'level': 2,
                     'model_used': 'LSTM/GRU' if TENSORFLOW_AVAILABLE else 'RandomForest'
                 },
@@ -1531,7 +1291,7 @@ class HealthPredictionModel:
                 level_of_analysis=2
             )
         except Exception as e:
-            logger.error(f"Error en predicción de salud: {str(e)}", exc_info=True)
+            logger.error(f"Error en predicción de salud: {str(e)}")
             return self._create_error_result(str(e), 'health_prediction', 2)
 
     def _estimate_degradation_rate(self, df: pd.DataFrame) -> float:
@@ -1540,9 +1300,10 @@ class HealthPredictionModel:
             soh_values = df['soh'].dropna()
             if len(soh_values) > 1:
                 x = np.arange(len(soh_values))
+                # Asegurar que los coeficientes son floats nativos
                 trend = float(np.polyfit(x, soh_values, 1)[0])
                 return float(abs(trend) * 30)
-        return 0.5
+        return 0.5 # Valor por defecto (0.5% por mes)
 
     def _classify_health_status(self, soh: float) -> str:
         """Clasificar estado de salud"""
