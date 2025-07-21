@@ -5,6 +5,10 @@ import platform
 import subprocess
 from datetime import datetime, timezone
 
+print("DEBUG: PYTHONPATH al inicio:", os.environ.get('PYTHONPATH'))
+print("DEBUG: sys.path al inicio:", sys.path)
+print("DEBUG: Directorio de trabajo actual:", os.getcwd())
+
 from flask import Flask, send_from_directory, jsonify, current_app, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
