@@ -1280,6 +1280,32 @@ class HealthPredictionModel:
             except Exception as e:
                 logger.error(f"Error entrenando modelos de salud RF: {str(e)}")
 
+        # --- INICIO DE LA SECCIÓN DE CÓDIGO AÑADIDA PARA GUARDAR MODELOS ---
+    def save_soh_model(self, path: str):
+        """Guarda el modelo SOH de TensorFlow/Keras."""
+        if self.soh_model and TENSORFLOW_AVAILABLE:
+            try:
+                self.soh_model.save(path)
+                logger.info(f"Modelo SOH guardado exitosamente en: {path}")
+            except Exception as e:
+                logger.error(f"Error al guardar el modelo SOH en {path}: {str(e)}")
+                raise # Re-lanzar para depuración si es necesario
+        else:
+            logger.warning("No hay modelo SOH o TensorFlow no está disponible para guardar.")
+
+    def save_rul_model(self, path: str):
+        """Guarda el modelo RUL de TensorFlow/Keras."""
+        if self.rul_model and TENSORFLOW_AVAILABLE:
+            try:
+                self.rul_model.save(path)
+                logger.info(f"Modelo RUL guardado exitosamente en: {path}")
+            except Exception as e:
+                logger.error(f"Error al guardar el modelo RUL en {path}: {str(e)}")
+                raise # Re-lanzar para depuración si es necesario
+        else:
+            logger.warning("No hay modelo RUL o TensorFlow no está disponible para guardar.")
+    # --- FIN DE LA SECCIÓN DE CÓDIGO AÑADIDA ---
+    
     def predict_health(self, df: pd.DataFrame, level: int = 2, battery_metadata: Optional[BatteryMetadata] = None) -> AnalysisResult:
         """Predecir SOH y RUL usando el modelo avanzado (Nivel 2)"""
         start_time = datetime.now()
