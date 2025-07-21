@@ -35,7 +35,7 @@ from sklearn.preprocessing import StandardScaler
 # Importar modelos mejorados
 from src.models.battery import db, Battery, BatteryData, AnalysisResult as DBAnalysisResult # Renombrar para evitar conflicto
 # Asumiendo que AnalysisResult en ai_models es el dataclass de src.models.schemas
-from ..services.ai_models import (
+from src.services.ai_models import (
     FaultDetectionModel,
     HealthPredictionModel,
     XAIExplainer,
@@ -117,9 +117,7 @@ def get_or_create_models():
             MODEL_CACHE['continuous_engine'] = ContinuousMonitoringEngine()
             MODEL_CACHE['xai_explainer'] = XAIExplainer()
             
-            # --- Cargar FaultDetectionModel pre-entrenado (si FaultDetectionModel es sklearn-compatible) ---
-            # Si FaultDetectionModel no tiene modelos Keras, joblib.load es adecuado.
-            # Si sí tiene modelos Keras, necesitará un tratamiento similar al HealthPredictionModel.
+            # --- Cargar FaultDetectionModel pre-entrenado ---
             if FAULT_MODEL_PATH.exists():
                 logger.info(f"Cargando FaultDetectionModel desde: {FAULT_MODEL_PATH}")
                 MODEL_CACHE['fault_model'] = joblib.load(FAULT_MODEL_PATH)
@@ -128,29 +126,21 @@ def get_or_create_models():
                 MODEL_CACHE['fault_model'] = FaultDetectionModel()
                 # Considerar aquí un error crítico si el modelo pre-entrenado es obligatorio
 
-            # --- Cargar HealthPredictionModel pre-entrenado (¡CORREGIDO!) ---
-            # Ya no cargamos la instancia completa con joblib.load.
-            # En su lugar, instanciamos la clase, y su __init__ se encarga de cargar los .h5 y scalers.
-            logger.info(f"Inicializando HealthPredictionModel desde el directorio: {MODELS_DIR}")
-            MODEL_CACHE['health_model'] = HealthPredictionModel(model_dir=MODELS_DIR) # Pasa el directorio de modelos
+            # --- Cargar HealthPredictionModel pre-entrenado ---
+            if HEALTH_MODEL_PATH.exists():
+                logger.info(f"Cargando HealthPredictionModel desde: {HEALTH_MODEL_PATH}")
+                MODEL_CACHE['health_model'] = joblib.load(HEALTH_MODEL_PATH)
+            else:
+                logger.warning(f"HealthPredictionModel pre-entrenado no encontrado en {HEALTH_MODEL_PATH}. Inicializando uno nuevo (puede no estar entrenado).")
+                MODEL_CACHE['health_model'] = HealthPredictionModel()
+                # Considerar aquí un error crítico si el modelo pre-entrenado es obligatorio
             
-            # Si HealthPredictionModel no pudo cargar sus modelos internos (ej. .h5 no existen),
-            # su __init__ ya debería haber registrado advertencias. Puedes añadir una verificación aquí si lo deseas.
-            if MODEL_CACHE['health_model'].soh_model is None or MODEL_CACHE['health_model'].rul_model is None:
-                 logger.warning("HealthPredictionModel se inicializó, pero sus modelos internos de DL (SOH/RUL) no pudieron ser cargados. Asegúrate de que los archivos .h5 existan y sean accesibles en el directorio de modelos.")
-
-
             MODEL_CACHE['last_updated'] = current_time
 
             logger.info("Modelos inicializados correctamente")
         except Exception as e:
-            logger.error(f"Error inicializando modelos: {str(e)}", exc_info=True)
+            logger.error(f"Error inicializando modelos: {str(e)}")
             # Mantener modelos existentes si falló la actualización.
-            # Si el fallo ocurre en HealthPredictionModel, asegúrate de que el modelo en cache se marque como None o inválido
-            MODEL_CACHE['health_model'] = None # Asegura que no se use un modelo roto
-            MODEL_CACHE['fault_model'] = None # Asegura que no se use un modelo roto
-            MODEL_CACHE['continuous_engine'] = None
-            MODEL_CACHE['xai_explainer'] = None
 
     return MODEL_CACHE
 
